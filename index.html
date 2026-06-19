@@ -1,0 +1,2373 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aurora POS | iPad Restaurant POS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              display: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+            },
+            colors: {
+              ink: "#07090d",
+              panel: "#11151d",
+              panel2: "#171c26",
+              line: "#2a3140",
+              orange: "#ff8a2a",
+              orange2: "#ffb067",
+            },
+            boxShadow: {
+              soft: "0 18px 60px rgba(0,0,0,.28)",
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      html,
+      body,
+      #root {
+        min-height: 100%;
+      }
+
+      body {
+        margin: 0;
+        background: #07090d;
+        color: #f7f8fb;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-plugins="transform-react-jsx">
+      const { useEffect, useMemo, useState } = React;
+
+      const STORAGE_KEY = "aurora-ipad-pos-state-v1";
+      const SESSION_KEY = "aurora-ipad-pos-session-v1";
+      const MENU_VERSION = "chinese-noodle-v1";
+      const SETTINGS_VERSION = "signature-noodle-house-v1";
+      const TAX_RATE = 0.09;
+      const SERVICE_RATE = 0.1;
+      const CATEGORIES = ["中式麵食", "炒麵", "飲品", "加料"];
+      const ORDER_NOTES = ["No spicy", "Less ice", "No onion"];
+      const PAYMENT_METHODS = ["Cash", "Card", "PayNow / QR Pay", "Split Bill"];
+      const KDS_STATUSES = ["New", "Preparing", "Ready", "Served"];
+      const TABLE_STATUSES = ["Available", "Occupied", "Reserved", "Cleaning"];
+
+      const image = (id) =>
+        `https://images.unsplash.com/${id}?auto=format&fit=crop&w=700&q=80`;
+
+      const defaultSettings = {
+        businessName: "某招牌麵館",
+        tagline: "iPad Restaurant POS",
+        managerName: "Manager",
+        managerPin: "0000",
+      };
+
+      const defaultStaffDirectory = [
+        { id: "s1", name: "Alicia Tan", role: "Cashier", pin: "1111" },
+        { id: "s2", name: "Ben Lim", role: "Server", pin: "2222" },
+        { id: "s3", name: "Chloe Ng", role: "Barista", pin: "3333" },
+        { id: "s4", name: "Daniel Koh", role: "Kitchen", pin: "4444" },
+      ];
+
+      const defaultMenu = [
+        {
+          id: "cn1",
+          name: "檳城福建面",
+          category: "中式麵食",
+          price: 8.9,
+          popular: true,
+          soldOut: false,
+          image: image("photo-1569718212165-3a8278d5f624"),
+        },
+        {
+          id: "cn2",
+          name: "葱油面",
+          category: "中式麵食",
+          price: 7.5,
+          popular: true,
+          soldOut: false,
+          image: image("photo-1612929633738-8fe44f7ec841"),
+        },
+        {
+          id: "cn3",
+          name: "麻辣葱油面",
+          category: "中式麵食",
+          price: 8.5,
+          popular: true,
+          soldOut: false,
+          image: image("photo-1591814468924-caf88d1232e1"),
+        },
+        {
+          id: "cn4",
+          name: "福建炒蝦麵",
+          category: "炒麵",
+          price: 12.9,
+          popular: true,
+          soldOut: false,
+          image: image("photo-1512058564366-18510be2db19"),
+        },
+      ];
+
+      const navItems = [
+        { id: "tables", label: "Tables", icon: "T", managerOnly: false },
+        { id: "pos", label: "Order", icon: "O", managerOnly: false },
+        { id: "kds", label: "KDS", icon: "K", managerOnly: false },
+        { id: "cashier", label: "Cashier", icon: "$", managerOnly: false },
+        { id: "reports", label: "Sales", icon: "S", managerOnly: true },
+        { id: "staff", label: "Staff", icon: "P", managerOnly: true },
+        { id: "menu", label: "Menu", icon: "M", managerOnly: true },
+        { id: "settings", label: "Setup", icon: "G", managerOnly: true },
+      ];
+
+      function uid(prefix = "id") {
+        return `${prefix}-${Math.random().toString(36).slice(2, 9)}-${Date.now().toString(36)}`;
+      }
+
+      function todayKey(date = new Date()) {
+        const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+        return localDate.toISOString().slice(0, 10);
+      }
+
+      function displayTime(value = new Date()) {
+        return new Intl.DateTimeFormat("en-SG", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(new Date(value));
+      }
+
+      function displayDateTime(value = new Date()) {
+        return new Intl.DateTimeFormat("en-SG", {
+          month: "short",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(new Date(value));
+      }
+
+      function money(value) {
+        return new Intl.NumberFormat("en-SG", {
+          style: "currency",
+          currency: "SGD",
+          minimumFractionDigits: 2,
+        }).format(Number(value || 0));
+      }
+
+      function seedTables() {
+        return Array.from({ length: 20 }, (_, index) => ({
+          id: index + 1,
+          status: "Available",
+          orderId: null,
+        }));
+      }
+
+      function cleanMenu(items) {
+        return items.map((item) => ({
+          popular: false,
+          soldOut: false,
+          ...item,
+          price: Number(item.price || 0),
+        }));
+      }
+
+      function saveStaffToState(current, nextStaff, editingStaff) {
+        const staffList = current.staff?.length ? current.staff : defaultStaffDirectory;
+        return {
+          ...current,
+          staff: editingStaff
+            ? staffList.map((staff) => (staff.id === nextStaff.id ? nextStaff : staff))
+            : [nextStaff, ...staffList],
+          timecards: (current.timecards || []).map((card) =>
+            card.staffId === nextStaff.id
+              ? { ...card, staffName: nextStaff.name, role: nextStaff.role }
+              : card
+          ),
+        };
+      }
+
+      function deleteStaffFromState(current, id) {
+        const staffList = current.staff?.length ? current.staff : defaultStaffDirectory;
+        if (staffList.length <= 1) return current;
+        return {
+          ...current,
+          staff: staffList.filter((staff) => staff.id !== id),
+        };
+      }
+
+      function emptyState() {
+        return {
+          menuVersion: MENU_VERSION,
+          settingsVersion: SETTINGS_VERSION,
+          settings: { ...defaultSettings },
+          staff: defaultStaffDirectory.map((staff) => ({ ...staff })),
+          tables: seedTables(),
+          menuItems: cleanMenu(defaultMenu),
+          orders: [],
+          kitchenTickets: [],
+          payments: [],
+          timecards: [],
+        };
+      }
+
+      function loadState() {
+        try {
+          const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+          if (!saved) return emptyState();
+          const shouldUseDefaultMenu = saved.menuVersion !== MENU_VERSION;
+          const shouldUseDefaultSettings = saved.settingsVersion !== SETTINGS_VERSION;
+          return {
+            ...emptyState(),
+            ...saved,
+            menuVersion: MENU_VERSION,
+            settingsVersion: SETTINGS_VERSION,
+            settings: shouldUseDefaultSettings
+              ? { ...defaultSettings, ...(saved.settings || {}), businessName: defaultSettings.businessName }
+              : { ...defaultSettings, ...(saved.settings || {}) },
+            staff: saved.staff?.length ? saved.staff : defaultStaffDirectory.map((staff) => ({ ...staff })),
+            tables: saved.tables?.length === 20 ? saved.tables : seedTables(),
+            menuItems: cleanMenu(shouldUseDefaultMenu ? defaultMenu : saved.menuItems?.length ? saved.menuItems : defaultMenu),
+            orders: saved.orders || [],
+            kitchenTickets: saved.kitchenTickets || [],
+            payments: saved.payments || [],
+            timecards: saved.timecards || [],
+          };
+        } catch (error) {
+          return emptyState();
+        }
+      }
+
+      function calcOrder(order) {
+        const subtotal = (order?.items || []).reduce((sum, item) => sum + item.price * item.qty, 0);
+        const discount = Number(order?.discount || 0);
+        const service = subtotal * SERVICE_RATE;
+        const gst = (subtotal + service - discount) * TAX_RATE;
+        const total = Math.max(0, subtotal + service + gst - discount);
+        return { subtotal, service, gst, discount, total };
+      }
+
+      function statusClass(status) {
+        const map = {
+          Available: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200",
+          Occupied: "border-orange/50 bg-orange/15 text-orange2",
+          Reserved: "border-sky-400/40 bg-sky-500/10 text-sky-200",
+          Cleaning: "border-violet-400/40 bg-violet-500/10 text-violet-200",
+          Open: "border-orange/50 bg-orange/15 text-orange2",
+          Held: "border-amber-400/40 bg-amber-500/10 text-amber-200",
+          Sent: "border-sky-400/40 bg-sky-500/10 text-sky-200",
+          Paid: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200",
+          New: "border-orange/50 bg-orange/15 text-orange2",
+          Preparing: "border-sky-400/40 bg-sky-500/10 text-sky-200",
+          Ready: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200",
+          Served: "border-zinc-500/40 bg-zinc-500/10 text-zinc-300",
+        };
+        return map[status] || "border-line bg-white/5 text-zinc-300";
+      }
+
+      function cx(...classes) {
+        return classes.filter(Boolean).join(" ");
+      }
+
+      function LoginScreen({ state, setState, onLogin }) {
+        const [mode, setMode] = useState("staff");
+        const staffDirectory = state.staff?.length ? state.staff : defaultStaffDirectory;
+        const settings = { ...defaultSettings, ...(state.settings || {}) };
+        const [staffId, setStaffId] = useState(staffDirectory[0].id);
+        const [pin, setPin] = useState("");
+        const [message, setMessage] = useState("");
+
+        const selectedStaff = staffDirectory.find((staff) => staff.id === staffId) || staffDirectory[0];
+        const activeCard = state.timecards.find(
+          (card) => card.staffId === selectedStaff.id && card.date === todayKey() && !card.clockOut
+        );
+
+        useEffect(() => {
+          if (!staffDirectory.find((staff) => staff.id === staffId)) {
+            setStaffId(staffDirectory[0]?.id || "");
+          }
+        }, [staffDirectory, staffId]);
+
+        function submitLogin() {
+          const user =
+            mode === "manager"
+              ? pin === settings.managerPin
+                ? { id: "manager", name: settings.managerName, role: "manager" }
+                : null
+              : staffDirectory.find((item) => item.id === staffId && item.pin === pin);
+          if (!user) {
+            setMessage("Wrong PIN. You can edit staff PINs and manager PIN in Setup after manager login.");
+            return;
+          }
+          const session =
+            mode === "manager"
+              ? { id: user.id, name: user.name, role: "manager" }
+              : { id: user.id, name: user.name, role: "staff", title: user.role };
+          localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+          onLogin(session);
+        }
+
+        function resetDemo() {
+          localStorage.removeItem(STORAGE_KEY);
+          localStorage.removeItem(SESSION_KEY);
+          setState(emptyState());
+          setPin("");
+          setMessage("Demo data reset. You can start a fresh test now.");
+        }
+
+        function clock(type) {
+          const now = new Date().toISOString();
+          setState((current) => {
+            const openCard = current.timecards.find(
+              (card) => card.staffId === selectedStaff.id && card.date === todayKey() && !card.clockOut
+            );
+            if (type === "in" && !openCard) {
+              return {
+                ...current,
+                timecards: [
+                  {
+                    id: uid("clock"),
+                    staffId: selectedStaff.id,
+                    staffName: selectedStaff.name,
+                    role: selectedStaff.role,
+                    date: todayKey(),
+                    clockIn: now,
+                    clockOut: null,
+                  },
+                  ...current.timecards,
+                ],
+              };
+            }
+            if (type === "out" && openCard) {
+              return {
+                ...current,
+                timecards: current.timecards.map((card) =>
+                  card.id === openCard.id ? { ...card, clockOut: now } : card
+                ),
+              };
+            }
+            return current;
+          });
+          setMessage(type === "in" ? `${selectedStaff.name} clocked in.` : `${selectedStaff.name} clocked out.`);
+        }
+
+        return (
+          <main className="min-h-screen bg-ink text-white">
+            <section className="mx-auto grid min-h-screen max-w-6xl grid-cols-1 items-center gap-8 px-6 py-8 lg:grid-cols-[1.1fr_.9fr]">
+              <div className="space-y-8">
+                <div>
+                  <div className="mb-5 inline-flex rounded-full border border-orange/40 bg-orange/10 px-4 py-2 text-sm font-semibold text-orange2">
+                    {settings.tagline}
+                  </div>
+                  <h1 className="max-w-3xl text-5xl font-semibold leading-tight tracking-normal text-white">
+                    {settings.businessName}
+                  </h1>
+                  <p className="mt-5 max-w-2xl text-lg leading-8 text-zinc-300">
+                    Touch-first restaurant, cafe, and snack bar POS with tables, menu ordering, KDS,
+                    simulated payments, sales reporting, staff clocking, and menu management.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  {[
+                    ["Tables", "20 dine-in tables with live status"],
+                    ["Kitchen", "KDS ticket flow from New to Served"],
+                    ["Payment", "Cash, Card, PayNow, QR Pay, Split Bill"],
+                    ["Reports", "Daily sales, hot items, tender mix"],
+                  ].map(([title, copy]) => (
+                    <div key={title} className="rounded-lg border border-line bg-panel/80 p-5">
+                      <div className="text-lg font-semibold">{title}</div>
+                      <div className="mt-2 text-sm leading-6 text-zinc-400">{copy}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-line bg-panel p-5 shadow-soft">
+                <div className="mb-5 grid grid-cols-2 rounded-lg bg-ink p-1">
+                  {["staff", "manager"].map((item) => (
+                    <button
+                      key={item}
+                      onClick={() => {
+                        setMode(item);
+                        setPin("");
+                        setMessage("");
+                      }}
+                      className={cx(
+                        "min-h-14 rounded-md text-base font-semibold capitalize transition",
+                        mode === item ? "bg-orange text-black" : "text-zinc-300"
+                      )}
+                    >
+                      {item === "staff" ? "Staff Login" : "Manager Login"}
+                    </button>
+                  ))}
+                </div>
+
+                {mode === "staff" && (
+                  <div className="mb-4 space-y-3">
+                    <label className="text-sm font-semibold text-zinc-400">Staff</label>
+                    <select
+                      value={staffId}
+                      onChange={(event) => setStaffId(event.target.value)}
+                      className="min-h-14 w-full rounded-lg border border-line bg-ink px-4 text-lg text-white outline-none focus:border-orange"
+                    >
+                      {staffDirectory.map((staff) => (
+                        <option key={staff.id} value={staff.id}>
+                          {staff.name} - {staff.role}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => clock("in")}
+                        className="min-h-14 rounded-lg border border-emerald-400/30 bg-emerald-500/10 font-semibold text-emerald-200"
+                      >
+                        Clock In
+                      </button>
+                      <button
+                        onClick={() => clock("out")}
+                        className="min-h-14 rounded-lg border border-zinc-500/40 bg-white/5 font-semibold text-zinc-200"
+                      >
+                        Clock Out
+                      </button>
+                    </div>
+                    <div className="rounded-lg border border-line bg-ink p-3 text-sm text-zinc-400">
+                      Status:{" "}
+                      <span className={activeCard ? "font-semibold text-emerald-300" : "font-semibold text-zinc-200"}>
+                        {activeCard ? `On duty since ${displayTime(activeCard.clockIn)}` : "Not clocked in"}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <label className="text-sm font-semibold text-zinc-400">PIN</label>
+                <input
+                  value={pin}
+                  onChange={(event) => setPin(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") submitLogin();
+                  }}
+                  inputMode="numeric"
+                  type="password"
+                  placeholder={mode === "manager" ? "Manager PIN 0000" : "Staff PIN"}
+                  className="mt-2 min-h-16 w-full rounded-lg border border-line bg-ink px-5 text-2xl tracking-[.35em] text-white outline-none focus:border-orange"
+                />
+                <button
+                  onClick={submitLogin}
+                  className="mt-4 min-h-16 w-full rounded-lg bg-orange px-5 text-lg font-bold text-black transition active:scale-[.99]"
+                >
+                  Enter POS
+                </button>
+                <button
+                  onClick={resetDemo}
+                  className="mt-3 min-h-12 w-full rounded-lg border border-line bg-ink px-5 text-sm font-bold text-zinc-300 transition active:scale-[.99]"
+                >
+                  Reset Demo Data
+                </button>
+                <p className="mt-4 min-h-10 text-sm leading-6 text-zinc-400">{message}</p>
+              </div>
+            </section>
+          </main>
+        );
+      }
+
+      function AppShell({ user, setUser, state, setState }) {
+        const settings = { ...defaultSettings, ...(state.settings || {}) };
+        const staffDirectory = state.staff?.length ? state.staff : defaultStaffDirectory;
+        const [view, setView] = useState("tables");
+        const [selectedTableId, setSelectedTableId] = useState(1);
+        const [activeOrderId, setActiveOrderId] = useState(null);
+        const [selectedOrderId, setSelectedOrderId] = useState(null);
+        const [receipt, setReceipt] = useState(null);
+
+        const activeOrder = state.orders.find((order) => order.id === activeOrderId) || null;
+        const selectedOrder = state.orders.find((order) => order.id === selectedOrderId) || activeOrder || null;
+        const openOrders = state.orders.filter((order) => order.status !== "Paid");
+        const todayPayments = state.payments.filter((payment) => payment.date === todayKey());
+        const onDuty = state.timecards.filter((card) => card.date === todayKey() && !card.clockOut);
+
+        function logout() {
+          localStorage.removeItem(SESSION_KEY);
+          setUser(null);
+        }
+
+        function resetDemo() {
+          localStorage.removeItem(STORAGE_KEY);
+          localStorage.removeItem(SESSION_KEY);
+          setState(emptyState());
+          setActiveOrderId(null);
+          setSelectedOrderId(null);
+          setReceipt(null);
+          setSelectedTableId(1);
+          setView("tables");
+          setUser(null);
+        }
+
+        function createOrderForTable(tableId) {
+          const table = state.tables.find((item) => item.id === tableId);
+          setSelectedTableId(tableId);
+          if (table?.orderId) {
+            const existing = state.orders.find((order) => order.id === table.orderId);
+            if (existing) {
+              setActiveOrderId(existing.id);
+              setSelectedOrderId(existing.id);
+              setView("pos");
+              return;
+            }
+          }
+
+          const order = {
+            id: uid("order"),
+            number: `T${String(tableId).padStart(2, "0")}-${Date.now().toString().slice(-4)}`,
+            type: "Dine In",
+            tableId,
+            items: [],
+            discount: 0,
+            status: "Open",
+            createdAt: new Date().toISOString(),
+          };
+          setState((current) => ({
+            ...current,
+            tables: current.tables.map((item) =>
+              item.id === tableId ? { ...item, status: "Occupied", orderId: order.id } : item
+            ),
+            orders: [order, ...current.orders],
+          }));
+          setActiveOrderId(order.id);
+          setSelectedOrderId(order.id);
+          setView("pos");
+        }
+
+        function createTakeawayOrder() {
+          const order = {
+            id: uid("order"),
+            number: `TA-${Date.now().toString().slice(-5)}`,
+            type: "Takeaway",
+            tableId: null,
+            items: [],
+            discount: 0,
+            status: "Open",
+            createdAt: new Date().toISOString(),
+          };
+          setState((current) => ({ ...current, orders: [order, ...current.orders] }));
+          setActiveOrderId(order.id);
+          setSelectedOrderId(order.id);
+          setView("pos");
+        }
+
+        function updateTableStatus(tableId, status) {
+          setState((current) => ({
+            ...current,
+            tables: current.tables.map((table) => {
+              if (table.id !== tableId) return table;
+              if (status === "Available") return { ...table, status, orderId: null };
+              return { ...table, status };
+            }),
+          }));
+        }
+
+        function addItem(menuItem) {
+          if (menuItem.soldOut) return;
+          let orderId = activeOrderId;
+
+          setState((current) => {
+            let orders = current.orders;
+            let tables = current.tables;
+            let order = orders.find((item) => item.id === orderId);
+
+            if (!order) {
+              const tableId = selectedTableId || 1;
+              order = {
+                id: uid("order"),
+                number: `T${String(tableId).padStart(2, "0")}-${Date.now().toString().slice(-4)}`,
+                type: "Dine In",
+                tableId,
+                items: [],
+                discount: 0,
+                status: "Open",
+                createdAt: new Date().toISOString(),
+              };
+              orderId = order.id;
+              orders = [order, ...orders];
+              tables = tables.map((table) =>
+                table.id === tableId ? { ...table, status: "Occupied", orderId: order.id } : table
+              );
+            }
+
+            const nextOrders = orders.map((item) => {
+              if (item.id !== order.id) return item;
+              const existing = item.items.find((line) => line.menuId === menuItem.id && !line.note);
+              const lines = existing
+                ? item.items.map((line) =>
+                    line.id === existing.id ? { ...line, qty: line.qty + 1 } : line
+                  )
+                : [
+                    ...item.items,
+                    {
+                      id: uid("line"),
+                      menuId: menuItem.id,
+                      name: menuItem.name,
+                      category: menuItem.category,
+                      price: Number(menuItem.price),
+                      image: menuItem.image,
+                      qty: 1,
+                      note: "",
+                    },
+                  ];
+              return { ...item, items: lines, status: item.status === "Held" ? "Open" : item.status };
+            });
+
+            return { ...current, tables, orders: nextOrders };
+          });
+
+          setTimeout(() => {
+            setActiveOrderId(orderId);
+            setSelectedOrderId(orderId);
+          }, 0);
+        }
+
+        function updateLine(orderId, lineId, patch) {
+          setState((current) => ({
+            ...current,
+            orders: current.orders.map((order) => {
+              if (order.id !== orderId) return order;
+              const items = order.items
+                .map((line) => (line.id === lineId ? { ...line, ...patch(line) } : line))
+                .filter((line) => line.qty > 0);
+              return { ...order, items };
+            }),
+          }));
+        }
+
+        function deleteLine(orderId, lineId) {
+          setState((current) => ({
+            ...current,
+            orders: current.orders.map((order) =>
+              order.id === orderId ? { ...order, items: order.items.filter((line) => line.id !== lineId) } : order
+            ),
+          }));
+        }
+
+        function holdOrder(orderId) {
+          setState((current) => ({
+            ...current,
+            orders: current.orders.map((order) =>
+              order.id === orderId ? { ...order, status: "Held", heldAt: new Date().toISOString() } : order
+            ),
+          }));
+        }
+
+        function sendToKitchen(orderId) {
+          const order = state.orders.find((item) => item.id === orderId);
+          if (!order || order.items.length === 0) return;
+          const ticket = {
+            id: uid("ticket"),
+            orderId: order.id,
+            orderNumber: order.number,
+            tableId: order.tableId,
+            items: order.items.map((item) => ({ ...item })),
+            status: "New",
+            createdAt: new Date().toISOString(),
+          };
+          setState((current) => ({
+            ...current,
+            orders: current.orders.map((item) =>
+              item.id === orderId ? { ...item, status: "Sent", sentAt: new Date().toISOString() } : item
+            ),
+            kitchenTickets: [ticket, ...current.kitchenTickets],
+          }));
+          setView("kds");
+        }
+
+        function updateDiscount(orderId, discount) {
+          setState((current) => ({
+            ...current,
+            orders: current.orders.map((order) =>
+              order.id === orderId ? { ...order, discount: Math.max(0, Number(discount || 0)) } : order
+            ),
+          }));
+        }
+
+        function completePayment(order, method, splitCount) {
+          const totals = calcOrder(order);
+          if (!order || order.items.length === 0 || totals.total <= 0) return;
+
+          const payment = {
+            id: uid("pay"),
+            orderId: order.id,
+            orderNumber: order.number,
+            tableId: order.tableId,
+            method,
+            splitCount,
+            date: todayKey(),
+            paidAt: new Date().toISOString(),
+            items: order.items.map((item) => ({ ...item })),
+            ...totals,
+          };
+
+          setState((current) => ({
+            ...current,
+            payments: [payment, ...current.payments],
+            orders: current.orders.map((item) =>
+              item.id === order.id ? { ...item, status: "Paid", paidAt: payment.paidAt, paymentId: payment.id } : item
+            ),
+            tables: current.tables.map((table) =>
+              table.id === order.tableId ? { ...table, status: "Cleaning", orderId: null } : table
+            ),
+          }));
+          setReceipt(payment);
+          setSelectedOrderId(null);
+          if (activeOrderId === order.id) setActiveOrderId(null);
+        }
+
+        function updateKitchenStatus(ticketId, status) {
+          setState((current) => ({
+            ...current,
+            kitchenTickets: current.kitchenTickets.map((ticket) =>
+              ticket.id === ticketId ? { ...ticket, status, updatedAt: new Date().toISOString() } : ticket
+            ),
+          }));
+        }
+
+        function clockCurrentUser(type) {
+          const staff = staffDirectory.find((item) => item.id === user.id);
+          if (!staff) return;
+          const now = new Date().toISOString();
+          setState((current) => {
+            const open = current.timecards.find(
+              (card) => card.staffId === staff.id && card.date === todayKey() && !card.clockOut
+            );
+            if (type === "in" && !open) {
+              return {
+                ...current,
+                timecards: [
+                  {
+                    id: uid("clock"),
+                    staffId: staff.id,
+                    staffName: staff.name,
+                    role: staff.role,
+                    date: todayKey(),
+                    clockIn: now,
+                    clockOut: null,
+                  },
+                  ...current.timecards,
+                ],
+              };
+            }
+            if (type === "out" && open) {
+              return {
+                ...current,
+                timecards: current.timecards.map((card) =>
+                  card.id === open.id ? { ...card, clockOut: now } : card
+                ),
+              };
+            }
+            return current;
+          });
+        }
+
+        return (
+          <div className="flex min-h-screen bg-ink text-white">
+            <aside className="flex w-24 shrink-0 flex-col border-r border-line bg-black/30 px-3 py-4 lg:w-28">
+              <button
+                onClick={() => setView("tables")}
+                className="mb-5 flex h-16 items-center justify-center rounded-lg bg-orange text-xl font-black text-black"
+              >
+                AP
+              </button>
+              <nav className="flex flex-1 flex-col gap-2">
+                {navItems
+                  .filter((item) => user.role === "manager" || !item.managerOnly)
+                  .map((item) => (
+                    <button
+                      key={item.id}
+                      data-testid={`nav-${item.id}`}
+                      onClick={() => setView(item.id)}
+                      className={cx(
+                        "min-h-16 rounded-lg border px-2 text-sm font-semibold transition active:scale-[.98]",
+                        view === item.id
+                          ? "border-orange bg-orange text-black"
+                          : "border-transparent bg-panel text-zinc-300 hover:border-line"
+                      )}
+                      title={item.label}
+                    >
+                      <div className="text-lg font-black">{item.icon}</div>
+                      <div>{item.label}</div>
+                    </button>
+                  ))}
+              </nav>
+              <button
+                onClick={logout}
+                className="mt-4 min-h-14 rounded-lg border border-line bg-panel text-sm font-semibold text-zinc-300"
+              >
+                Logout
+              </button>
+            </aside>
+
+            <main className="flex min-w-0 flex-1 flex-col">
+              <header className="flex min-h-20 items-center justify-between border-b border-line bg-ink/95 px-5">
+                <div>
+                  <div className="text-sm font-semibold uppercase tracking-[.18em] text-orange2">
+                    {view === "kds" ? "Kitchen Display" : "Restaurant POS"}
+                  </div>
+                  <h2 className="text-2xl font-semibold tracking-normal">
+                    {settings.businessName} / {navItems.find((item) => item.id === view)?.label || "Tables"}
+                  </h2>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="hidden rounded-lg border border-line bg-panel px-4 py-3 text-right md:block">
+                    <div className="text-sm text-zinc-400">{displayDateTime()}</div>
+                    <div className="font-semibold">
+                      {user.name} <span className="text-zinc-500">/</span> {user.role === "staff" ? user.title : "manager"}
+                    </div>
+                  </div>
+                  {user.role === "staff" && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => clockCurrentUser("in")}
+                        className="min-h-12 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200"
+                      >
+                        Clock In
+                      </button>
+                      <button
+                        onClick={() => clockCurrentUser("out")}
+                        className="min-h-12 rounded-lg border border-line bg-panel px-4 text-sm font-semibold"
+                      >
+                        Clock Out
+                      </button>
+                    </div>
+                  )}
+                  <div className="rounded-lg border border-line bg-panel px-4 py-3">
+                    <div className="text-xs text-zinc-400">On Duty</div>
+                    <div className="text-xl font-bold text-emerald-300">{onDuty.length}</div>
+                  </div>
+                  <div className="rounded-lg border border-line bg-panel px-4 py-3">
+                    <div className="text-xs text-zinc-400">Today Sales</div>
+                    <div className="text-xl font-bold text-orange2">
+                      {money(todayPayments.reduce((sum, payment) => sum + payment.total, 0))}
+                    </div>
+                  </div>
+                  {user.role === "manager" && (
+                    <button
+                      onClick={resetDemo}
+                      className="min-h-14 rounded-lg border border-line bg-panel px-4 text-sm font-bold text-zinc-300"
+                    >
+                      Reset Demo
+                    </button>
+                  )}
+                </div>
+              </header>
+
+              <section className="min-h-0 flex-1 overflow-hidden">
+                {view === "tables" && (
+                  <TablesView
+                    tables={state.tables}
+                    orders={state.orders}
+                    onOpenTable={createOrderForTable}
+                    onStatus={updateTableStatus}
+                    onTakeaway={createTakeawayOrder}
+                  />
+                )}
+                {view === "pos" && (
+                  <PosView
+                    menuItems={state.menuItems}
+                    order={activeOrder}
+                    selectedTableId={selectedTableId}
+                    openOrders={openOrders}
+                    onSelectOrder={(orderId) => {
+                      setActiveOrderId(orderId);
+                      setSelectedOrderId(orderId);
+                    }}
+                    onAdd={addItem}
+                    onQty={(lineId, delta) =>
+                      activeOrder && updateLine(activeOrder.id, lineId, (line) => ({ qty: line.qty + delta }))
+                    }
+                    onNote={(lineId, note) =>
+                      activeOrder && updateLine(activeOrder.id, lineId, () => ({ note }))
+                    }
+                    onDelete={(lineId) => activeOrder && deleteLine(activeOrder.id, lineId)}
+                    onDiscount={(discount) => activeOrder && updateDiscount(activeOrder.id, discount)}
+                    onHold={() => activeOrder && holdOrder(activeOrder.id)}
+                    onSend={() => activeOrder && sendToKitchen(activeOrder.id)}
+                    onPay={() => {
+                      if (activeOrder) {
+                        setSelectedOrderId(activeOrder.id);
+                        setView("cashier");
+                      }
+                    }}
+                    onNewTakeaway={createTakeawayOrder}
+                    onTables={() => setView("tables")}
+                  />
+                )}
+                {view === "kds" && (
+                  <KdsView tickets={state.kitchenTickets} onStatus={updateKitchenStatus} />
+                )}
+                {view === "cashier" && (
+                  <CashierView
+                    orders={openOrders}
+                    selectedOrder={selectedOrder}
+                    onSelect={(orderId) => setSelectedOrderId(orderId)}
+                    onPayment={completePayment}
+                    onTables={() => setView("tables")}
+                  />
+                )}
+                {view === "reports" && <ReportsView payments={state.payments} />}
+                {view === "staff" && (
+                  <StaffView state={state} setState={setState} staffDirectory={staffDirectory} />
+                )}
+                {view === "menu" && (
+                  <MenuManagerView state={state} setState={setState} categories={CATEGORIES} />
+                )}
+                {view === "settings" && (
+                  <SettingsView state={state} setState={setState} />
+                )}
+              </section>
+            </main>
+
+            {receipt && <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />}
+          </div>
+        );
+      }
+
+      function TablesView({ tables, orders, onOpenTable, onStatus, onTakeaway }) {
+        const [filter, setFilter] = useState("All");
+        const visibleTables = filter === "All" ? tables : tables.filter((table) => table.status === filter);
+        const statusCounts = TABLE_STATUSES.reduce((acc, status) => {
+          acc[status] = tables.filter((table) => table.status === status).length;
+          return acc;
+        }, {});
+
+        return (
+          <div className="h-full overflow-auto p-5">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap gap-2">
+                {["All", ...TABLE_STATUSES].map((status) => (
+                  <button
+                    key={status}
+                    onClick={() => setFilter(status)}
+                    className={cx(
+                      "min-h-12 rounded-lg border px-4 text-sm font-semibold",
+                      filter === status ? "border-orange bg-orange text-black" : "border-line bg-panel text-zinc-300"
+                    )}
+                  >
+                    {status}
+                    {status !== "All" && <span className="ml-2 text-xs opacity-75">{statusCounts[status]}</span>}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={onTakeaway}
+                className="min-h-12 rounded-lg bg-orange px-5 font-bold text-black"
+              >
+                New Takeaway
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-5">
+              {visibleTables.map((table) => {
+                const order = orders.find((item) => item.id === table.orderId);
+                const totals = order ? calcOrder(order) : null;
+                return (
+                  <div key={table.id} className="rounded-lg border border-line bg-panel p-4">
+                    <button
+                      data-testid={`table-${table.id}`}
+                      onClick={() => onOpenTable(table.id)}
+                      className="block min-h-36 w-full rounded-lg border border-white/5 bg-panel2 p-4 text-left active:scale-[.99]"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm text-zinc-400">Table</div>
+                          <div className="mt-1 text-4xl font-black">{table.id}</div>
+                        </div>
+                        <span className={cx("rounded-full border px-3 py-1 text-xs font-bold", statusClass(table.status))}>
+                          {table.status}
+                        </span>
+                      </div>
+                      <div className="mt-6 grid grid-cols-2 gap-2 text-sm">
+                        <div className="rounded-md bg-black/25 p-2">
+                          <div className="text-zinc-500">Order</div>
+                          <div className="truncate font-semibold">{order?.number || "None"}</div>
+                        </div>
+                        <div className="rounded-md bg-black/25 p-2">
+                          <div className="text-zinc-500">Total</div>
+                          <div className="font-semibold">{totals ? money(totals.total) : "-"}</div>
+                        </div>
+                      </div>
+                    </button>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      {["Reserved", "Cleaning", "Available", "Occupied"].map((status) => (
+                        <button
+                          key={status}
+                          onClick={() => onStatus(table.id, status)}
+                          className="min-h-10 rounded-md border border-line bg-ink text-xs font-semibold text-zinc-300"
+                        >
+                          {status}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      }
+
+      function PosView({
+        menuItems,
+        order,
+        openOrders,
+        onSelectOrder,
+        onAdd,
+        onQty,
+        onNote,
+        onDelete,
+        onDiscount,
+        onHold,
+        onSend,
+        onPay,
+        onNewTakeaway,
+        onTables,
+      }) {
+        const [category, setCategory] = useState("All");
+        const [search, setSearch] = useState("");
+        const totals = calcOrder(order);
+        const filtered = menuItems.filter((item) => {
+          const matchesCategory = category === "All" || item.category === category;
+          const query = search.trim().toLowerCase();
+          const matchesSearch =
+            !query ||
+            item.name.toLowerCase().includes(query) ||
+            item.category.toLowerCase().includes(query);
+          return matchesCategory && matchesSearch;
+        });
+
+        return (
+          <div className="grid h-full grid-cols-1 overflow-hidden xl:grid-cols-[1fr_430px]">
+            <section className="min-h-0 overflow-auto border-r border-line p-5">
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <button
+                  onClick={onTables}
+                  className="min-h-12 rounded-lg border border-line bg-panel px-4 font-semibold text-zinc-200"
+                >
+                  Tables
+                </button>
+                <button
+                  onClick={onNewTakeaway}
+                  className="min-h-12 rounded-lg border border-line bg-panel px-4 font-semibold text-zinc-200"
+                >
+                  Takeaway
+                </button>
+                <select
+                  value={order?.id || ""}
+                  onChange={(event) => onSelectOrder(event.target.value)}
+                  className="min-h-12 min-w-64 rounded-lg border border-line bg-panel px-4 text-zinc-200 outline-none focus:border-orange"
+                >
+                  <option value="">Select active order</option>
+                  {openOrders.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.number} - {item.type} - {item.status}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search food or category"
+                  className="min-h-12 flex-1 rounded-lg border border-line bg-panel px-4 text-white outline-none focus:border-orange"
+                />
+              </div>
+
+              <div className="mb-5 flex gap-2 overflow-auto pb-1 no-scrollbar">
+                {["All", ...CATEGORIES].map((item) => (
+                  <button
+                    key={item}
+                    onClick={() => setCategory(item)}
+                    className={cx(
+                      "min-h-12 shrink-0 rounded-lg border px-4 text-sm font-bold",
+                      category === item ? "border-orange bg-orange text-black" : "border-line bg-panel text-zinc-300"
+                    )}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-4">
+                {filtered.map((item) => (
+                  <button
+                    key={item.id}
+                    data-testid={`menu-${item.id}`}
+                    onClick={() => onAdd(item)}
+                    disabled={item.soldOut}
+                    className={cx(
+                      "group overflow-hidden rounded-lg border border-line bg-panel text-left shadow-soft transition active:scale-[.99]",
+                      item.soldOut && "opacity-50"
+                    )}
+                  >
+                    <div className="relative aspect-[4/3] overflow-hidden bg-panel2">
+                      <img
+                        src={item.image}
+                        alt={item.name}
+                        className="h-full w-full object-cover transition group-hover:scale-105"
+                      />
+                      {item.popular && (
+                        <span className="absolute left-3 top-3 rounded-full bg-orange px-3 py-1 text-xs font-black text-black">
+                          Popular
+                        </span>
+                      )}
+                      {item.soldOut && (
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/60 text-lg font-black">
+                          Sold Out
+                        </span>
+                      )}
+                    </div>
+                    <div className="p-4">
+                      <div className="min-h-12 text-lg font-bold leading-6">{item.name}</div>
+                      <div className="mt-3 flex items-center justify-between">
+                        <span className="rounded-full border border-line px-3 py-1 text-xs font-semibold text-zinc-400">
+                          {item.category}
+                        </span>
+                        <span className="text-xl font-black text-orange2">{money(item.price)}</span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <OrderPanel
+              order={order}
+              totals={totals}
+              onQty={onQty}
+              onNote={onNote}
+              onDelete={onDelete}
+              onDiscount={onDiscount}
+              onHold={onHold}
+              onSend={onSend}
+              onPay={onPay}
+            />
+          </div>
+        );
+      }
+
+      function OrderPanel({ order, totals, onQty, onNote, onDelete, onDiscount, onHold, onSend, onPay }) {
+        return (
+          <aside className="flex min-h-0 flex-col bg-black/20 p-5">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold uppercase tracking-[.18em] text-zinc-500">Current Order</div>
+                <h3 className="mt-1 text-2xl font-black">{order?.number || "No order"}</h3>
+                <div className="mt-1 text-sm text-zinc-400">
+                  {order ? `${order.type}${order.tableId ? ` / Table ${order.tableId}` : ""}` : "Choose a table to start"}
+                </div>
+              </div>
+              {order && (
+                <span className={cx("rounded-full border px-3 py-1 text-xs font-bold", statusClass(order.status))}>
+                  {order.status}
+                </span>
+              )}
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-3 overflow-auto pr-1 no-scrollbar">
+              {!order && (
+                <div className="rounded-lg border border-dashed border-line bg-panel p-5 text-center text-zinc-400">
+                  Select Table 1-20 or create a takeaway order.
+                </div>
+              )}
+              {order?.items.length === 0 && (
+                <div className="rounded-lg border border-dashed border-line bg-panel p-5 text-center text-zinc-400">
+                  Tap food cards to add items.
+                </div>
+              )}
+              {order?.items.map((line) => (
+                <div key={line.id} className="rounded-lg border border-line bg-panel p-3">
+                  <div className="flex gap-3">
+                    <img
+                      src={line.image}
+                      alt={line.name}
+                      className="h-20 w-20 rounded-md object-cover"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-bold leading-5">{line.name}</div>
+                          <div className="mt-1 text-sm text-zinc-400">{money(line.price)} each</div>
+                        </div>
+                        <button
+                          onClick={() => onDelete(line.id)}
+                          className="min-h-10 min-w-10 rounded-md border border-line bg-ink font-black text-zinc-300"
+                        >
+                          X
+                        </button>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between">
+                        <div className="flex items-center rounded-lg border border-line bg-ink">
+                          <button
+                            onClick={() => onQty(line.id, -1)}
+                            className="min-h-11 min-w-11 text-xl font-black"
+                          >
+                            -
+                          </button>
+                          <div className="min-w-10 text-center text-lg font-black">{line.qty}</div>
+                          <button
+                            onClick={() => onQty(line.id, 1)}
+                            className="min-h-11 min-w-11 text-xl font-black"
+                          >
+                            +
+                          </button>
+                        </div>
+                        <div className="text-lg font-black text-orange2">{money(line.price * line.qty)}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {ORDER_NOTES.map((note) => (
+                      <button
+                        key={note}
+                        onClick={() => onNote(line.id, line.note === note ? "" : note)}
+                        className={cx(
+                          "min-h-9 rounded-md border px-3 text-xs font-bold",
+                          line.note === note ? "border-orange bg-orange text-black" : "border-line bg-ink text-zinc-300"
+                        )}
+                      >
+                        {note}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 rounded-lg border border-line bg-panel p-4">
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between text-zinc-300">
+                  <span>Subtotal</span>
+                  <span>{money(totals.subtotal)}</span>
+                </div>
+                <div className="flex justify-between text-zinc-300">
+                  <span>Service Charge 10%</span>
+                  <span>{money(totals.service)}</span>
+                </div>
+                <div className="flex justify-between text-zinc-300">
+                  <span>GST 9%</span>
+                  <span>{money(totals.gst)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 text-zinc-300">
+                  <span>Discount</span>
+                  <input
+                    value={order?.discount || 0}
+                    onChange={(event) => onDiscount(event.target.value)}
+                    disabled={!order}
+                    inputMode="decimal"
+                    className="h-10 w-28 rounded-md border border-line bg-ink px-3 text-right text-white outline-none focus:border-orange"
+                  />
+                </div>
+                <div className="border-t border-line pt-3">
+                  <div className="flex items-end justify-between">
+                    <span className="text-lg font-bold">Total</span>
+                    <span className="text-3xl font-black text-orange2">{money(totals.total)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  onClick={onHold}
+                  disabled={!order}
+                  className="min-h-14 rounded-lg border border-line bg-ink font-bold disabled:opacity-40"
+                >
+                  Hold Order
+                </button>
+                <button
+                  onClick={onSend}
+                  data-testid="send-to-kitchen"
+                  disabled={!order || order.items.length === 0}
+                  className="min-h-14 rounded-lg border border-sky-400/40 bg-sky-500/10 font-bold text-sky-200 disabled:opacity-40"
+                >
+                  Send to Kitchen
+                </button>
+                <button
+                  onClick={onPay}
+                  data-testid="pay-now"
+                  disabled={!order || order.items.length === 0}
+                  className="col-span-2 min-h-16 rounded-lg bg-orange text-lg font-black text-black disabled:opacity-40"
+                >
+                  Pay Now
+                </button>
+              </div>
+            </div>
+          </aside>
+        );
+      }
+
+      function KdsView({ tickets, onStatus }) {
+        const activeTickets = tickets.filter((ticket) => ticket.status !== "Served");
+        const servedTickets = tickets.filter((ticket) => ticket.status === "Served").slice(0, 8);
+
+        return (
+          <div className="h-full overflow-auto p-5">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
+              {KDS_STATUSES.map((status) => {
+                const list = tickets.filter((ticket) => ticket.status === status);
+                return (
+                  <section key={status} className="min-h-[680px] rounded-lg border border-line bg-panel p-4">
+                    <div className="mb-4 flex items-center justify-between">
+                      <h3 className="text-xl font-black">{status}</h3>
+                      <span className={cx("rounded-full border px-3 py-1 text-xs font-bold", statusClass(status))}>
+                        {list.length}
+                      </span>
+                    </div>
+                    <div className="space-y-3">
+                      {list.map((ticket) => (
+                        <div key={ticket.id} className="rounded-lg border border-line bg-ink p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-lg font-black">{ticket.orderNumber}</div>
+                              <div className="mt-1 text-sm text-zinc-400">
+                                {ticket.tableId ? `Table ${ticket.tableId}` : "Takeaway"} / {displayTime(ticket.createdAt)}
+                              </div>
+                            </div>
+                            <span className="rounded-md bg-white/5 px-2 py-1 text-xs text-zinc-400">
+                              {ticket.items.reduce((sum, item) => sum + item.qty, 0)} items
+                            </span>
+                          </div>
+                          <div className="mt-4 space-y-2">
+                            {ticket.items.map((item) => (
+                              <div key={item.id} className="rounded-md bg-panel px-3 py-2">
+                                <div className="flex justify-between gap-2">
+                                  <span className="font-semibold">{item.qty}x {item.name}</span>
+                                  <span className="text-xs text-zinc-500">{item.category}</span>
+                                </div>
+                                {item.note && <div className="mt-1 text-sm font-semibold text-orange2">{item.note}</div>}
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-4 grid grid-cols-2 gap-2">
+                            {KDS_STATUSES.filter((item) => item !== status).map((next) => (
+                              <button
+                                key={next}
+                                onClick={() => onStatus(ticket.id, next)}
+                                className="min-h-10 rounded-md border border-line bg-panel text-xs font-bold text-zinc-300"
+                              >
+                                {next}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      {list.length === 0 && (
+                        <div className="rounded-lg border border-dashed border-line p-6 text-center text-sm text-zinc-500">
+                          No tickets
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+            <div className="mt-5 text-sm text-zinc-500">
+              Active tickets: {activeTickets.length}. Served tickets kept for audit: {servedTickets.length}.
+            </div>
+          </div>
+        );
+      }
+
+      function CashierView({ orders, selectedOrder, onSelect, onPayment, onTables }) {
+        const [method, setMethod] = useState("Cash");
+        const [splitCount, setSplitCount] = useState(2);
+        const totals = calcOrder(selectedOrder);
+        const perGuest = method === "Split Bill" ? totals.total / Math.max(1, splitCount) : totals.total;
+
+        return (
+          <div className="grid h-full grid-cols-1 gap-5 overflow-auto p-5 xl:grid-cols-[420px_1fr]">
+            <section className="rounded-lg border border-line bg-panel p-4">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-xl font-black">Unpaid Orders</h3>
+                <button
+                  onClick={onTables}
+                  className="min-h-10 rounded-md border border-line bg-ink px-3 text-sm font-bold"
+                >
+                  Tables
+                </button>
+              </div>
+              <div className="space-y-3">
+                {orders.map((order) => {
+                  const orderTotal = calcOrder(order).total;
+                  return (
+                    <button
+                      key={order.id}
+                      onClick={() => onSelect(order.id)}
+                      className={cx(
+                        "w-full rounded-lg border p-4 text-left",
+                        selectedOrder?.id === order.id ? "border-orange bg-orange/10" : "border-line bg-ink"
+                      )}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="text-lg font-black">{order.number}</div>
+                          <div className="mt-1 text-sm text-zinc-400">
+                            {order.tableId ? `Table ${order.tableId}` : "Takeaway"} / {order.status}
+                          </div>
+                        </div>
+                        <div className="text-xl font-black text-orange2">{money(orderTotal)}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+                {orders.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-line p-6 text-center text-zinc-500">
+                    No unpaid orders.
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-line bg-panel p-5">
+              <div className="mb-5 flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold uppercase tracking-[.18em] text-zinc-500">Cashier</div>
+                  <h3 className="mt-1 text-3xl font-black">{selectedOrder?.number || "Select order"}</h3>
+                  <div className="mt-1 text-zinc-400">
+                    {selectedOrder
+                      ? `${selectedOrder.type}${selectedOrder.tableId ? ` / Table ${selectedOrder.tableId}` : ""}`
+                      : "Choose an unpaid order to continue"}
+                  </div>
+                </div>
+                {selectedOrder && (
+                  <span className={cx("rounded-full border px-3 py-1 text-xs font-bold", statusClass(selectedOrder.status))}>
+                    {selectedOrder.status}
+                  </span>
+                )}
+              </div>
+
+              <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
+                <div className="space-y-3">
+                  {selectedOrder?.items.map((item) => (
+                    <div key={item.id} className="flex items-center gap-4 rounded-lg border border-line bg-ink p-3">
+                      <img src={item.image} alt={item.name} className="h-16 w-16 rounded-md object-cover" />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold">{item.qty}x {item.name}</div>
+                        <div className="text-sm text-zinc-400">{item.note || item.category}</div>
+                      </div>
+                      <div className="text-lg font-black">{money(item.price * item.qty)}</div>
+                    </div>
+                  ))}
+                  {!selectedOrder && (
+                    <div className="rounded-lg border border-dashed border-line p-8 text-center text-zinc-500">
+                      Payment panel is ready.
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-lg border border-line bg-ink p-4">
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between text-zinc-300">
+                      <span>Subtotal</span>
+                      <span>{money(totals.subtotal)}</span>
+                    </div>
+                    <div className="flex justify-between text-zinc-300">
+                      <span>Service Charge 10%</span>
+                      <span>{money(totals.service)}</span>
+                    </div>
+                    <div className="flex justify-between text-zinc-300">
+                      <span>GST 9%</span>
+                      <span>{money(totals.gst)}</span>
+                    </div>
+                    <div className="flex justify-between text-zinc-300">
+                      <span>Discount</span>
+                      <span>{money(totals.discount)}</span>
+                    </div>
+                    <div className="mt-3 border-t border-line pt-3">
+                      <div className="flex justify-between">
+                        <span className="text-lg font-black">Total</span>
+                        <span className="text-3xl font-black text-orange2">{money(totals.total)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 grid grid-cols-2 gap-2">
+                    {PAYMENT_METHODS.map((item) => (
+                      <button
+                        key={item}
+                        data-testid={`payment-${item.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`}
+                        onClick={() => setMethod(item)}
+                        className={cx(
+                          "min-h-14 rounded-lg border px-3 text-sm font-bold",
+                          method === item ? "border-orange bg-orange text-black" : "border-line bg-panel text-zinc-300"
+                        )}
+                      >
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+
+                  {method === "Split Bill" && (
+                    <div className="mt-4 rounded-lg border border-line bg-panel p-3">
+                      <label className="text-sm font-semibold text-zinc-400">Split Count</label>
+                      <input
+                        value={splitCount}
+                        onChange={(event) => setSplitCount(Math.max(1, Number(event.target.value || 1)))}
+                        inputMode="numeric"
+                        className="mt-2 min-h-12 w-full rounded-md border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                      />
+                      <div className="mt-3 flex justify-between text-sm">
+                        <span className="text-zinc-400">Per person</span>
+                        <span className="font-black text-orange2">{money(perGuest)}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => onPayment(selectedOrder, method, method === "Split Bill" ? splitCount : 1)}
+                    data-testid="complete-payment"
+                    disabled={!selectedOrder || selectedOrder.items.length === 0}
+                    className="mt-5 min-h-16 w-full rounded-lg bg-orange text-lg font-black text-black disabled:opacity-40"
+                  >
+                    Simulate Payment Success
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+        );
+      }
+
+      function ReportsView({ payments }) {
+        const today = payments.filter((payment) => payment.date === todayKey());
+        const revenue = today.reduce((sum, payment) => sum + payment.total, 0);
+        const count = today.length;
+        const average = count ? revenue / count : 0;
+        const methodStats = PAYMENT_METHODS.reduce((acc, method) => {
+          acc[method] = today
+            .filter((payment) => payment.method === method)
+            .reduce((sum, payment) => sum + payment.total, 0);
+          return acc;
+        }, {});
+        const itemStats = {};
+        today.forEach((payment) => {
+          payment.items.forEach((item) => {
+            itemStats[item.name] = (itemStats[item.name] || 0) + item.qty;
+          });
+        });
+        const hotItems = Object.entries(itemStats)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 6);
+        const maxMethod = Math.max(1, ...Object.values(methodStats));
+        const maxHot = Math.max(1, ...hotItems.map((item) => item[1]));
+
+        return (
+          <div className="h-full overflow-auto p-5">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              {[
+                ["Today Sales", money(revenue), "All paid orders today"],
+                ["Today Orders", count, "Completed payments"],
+                ["Average Order", money(average), "Revenue per order"],
+              ].map(([title, value, copy]) => (
+                <div key={title} className="rounded-lg border border-line bg-panel p-5">
+                  <div className="text-sm font-semibold uppercase tracking-[.18em] text-zinc-500">{title}</div>
+                  <div className="mt-3 text-4xl font-black text-orange2">{value}</div>
+                  <div className="mt-2 text-sm text-zinc-400">{copy}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
+              <section className="rounded-lg border border-line bg-panel p-5">
+                <h3 className="text-xl font-black">Cash / Card / QR Pay</h3>
+                <div className="mt-5 space-y-4">
+                  {PAYMENT_METHODS.map((method) => (
+                    <div key={method}>
+                      <div className="mb-2 flex justify-between text-sm">
+                        <span className="font-semibold">{method}</span>
+                        <span className="text-zinc-400">{money(methodStats[method])}</span>
+                      </div>
+                      <div className="h-4 overflow-hidden rounded-full bg-ink">
+                        <div
+                          className="h-full rounded-full bg-orange"
+                          style={{ width: `${Math.max(4, (methodStats[method] / maxMethod) * 100)}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-line bg-panel p-5">
+                <h3 className="text-xl font-black">Hot Selling Items</h3>
+                <div className="mt-5 space-y-4">
+                  {hotItems.map(([name, qty]) => (
+                    <div key={name}>
+                      <div className="mb-2 flex justify-between text-sm">
+                        <span className="font-semibold">{name}</span>
+                        <span className="text-zinc-400">{qty} sold</span>
+                      </div>
+                      <div className="h-4 overflow-hidden rounded-full bg-ink">
+                        <div
+                          className="h-full rounded-full bg-emerald-400"
+                          style={{ width: `${Math.max(8, (qty / maxHot) * 100)}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  ))}
+                  {hotItems.length === 0 && (
+                    <div className="rounded-lg border border-dashed border-line p-8 text-center text-zinc-500">
+                      Pay an order to generate sales data.
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+
+            <section className="mt-5 rounded-lg border border-line bg-panel p-5">
+              <h3 className="text-xl font-black">Today Receipts</h3>
+              <div className="mt-4 overflow-hidden rounded-lg border border-line">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-ink text-zinc-400">
+                    <tr>
+                      <th className="p-3">Time</th>
+                      <th className="p-3">Order</th>
+                      <th className="p-3">Table</th>
+                      <th className="p-3">Method</th>
+                      <th className="p-3 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {today.map((payment) => (
+                      <tr key={payment.id} className="border-t border-line">
+                        <td className="p-3 text-zinc-400">{displayTime(payment.paidAt)}</td>
+                        <td className="p-3 font-semibold">{payment.orderNumber}</td>
+                        <td className="p-3">{payment.tableId ? `Table ${payment.tableId}` : "Takeaway"}</td>
+                        <td className="p-3">{payment.method}</td>
+                        <td className="p-3 text-right font-black text-orange2">{money(payment.total)}</td>
+                      </tr>
+                    ))}
+                    {today.length === 0 && (
+                      <tr>
+                        <td colSpan="5" className="p-8 text-center text-zinc-500">
+                          No payments today.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        );
+      }
+
+      function StaffView({ state, setState, staffDirectory }) {
+        const [selectedStaffId, setSelectedStaffId] = useState(staffDirectory[0].id);
+        const emptyStaffForm = { id: "", name: "", role: "Server", pin: "" };
+        const [staffForm, setStaffForm] = useState(emptyStaffForm);
+        const editingStaff = Boolean(staffForm.id);
+        const selectedStaff = staffDirectory.find((staff) => staff.id === selectedStaffId) || staffDirectory[0];
+        const todayCards = state.timecards.filter((card) => card.date === todayKey());
+        const onDuty = todayCards.filter((card) => !card.clockOut);
+
+        useEffect(() => {
+          if (!staffDirectory.find((staff) => staff.id === selectedStaffId)) {
+            setSelectedStaffId(staffDirectory[0]?.id || "");
+          }
+        }, [staffDirectory, selectedStaffId]);
+
+        function saveStaff() {
+          if (!staffForm.name.trim() || !staffForm.pin.trim()) return;
+          const nextStaff = {
+            id: staffForm.id || uid("staff"),
+            name: staffForm.name.trim(),
+            role: staffForm.role.trim() || "Server",
+            pin: staffForm.pin.trim(),
+          };
+          setState((current) => saveStaffToState(current, nextStaff, editingStaff));
+          setSelectedStaffId(nextStaff.id);
+          setStaffForm(emptyStaffForm);
+        }
+
+        function deleteStaff(id) {
+          setState((current) => deleteStaffFromState(current, id));
+          if (selectedStaffId === id) setSelectedStaffId(staffDirectory.find((staff) => staff.id !== id)?.id || "");
+          if (staffForm.id === id) setStaffForm(emptyStaffForm);
+        }
+
+        function clock(type) {
+          const now = new Date().toISOString();
+          setState((current) => {
+            const open = current.timecards.find(
+              (card) => card.staffId === selectedStaff.id && card.date === todayKey() && !card.clockOut
+            );
+            if (type === "in" && !open) {
+              return {
+                ...current,
+                timecards: [
+                  {
+                    id: uid("clock"),
+                    staffId: selectedStaff.id,
+                    staffName: selectedStaff.name,
+                    role: selectedStaff.role,
+                    date: todayKey(),
+                    clockIn: now,
+                    clockOut: null,
+                  },
+                  ...current.timecards,
+                ],
+              };
+            }
+            if (type === "out" && open) {
+              return {
+                ...current,
+                timecards: current.timecards.map((card) =>
+                  card.id === open.id ? { ...card, clockOut: now } : card
+                ),
+              };
+            }
+            return current;
+          });
+        }
+
+        return (
+          <div className="grid h-full grid-cols-1 gap-5 overflow-auto p-5 xl:grid-cols-[340px_420px_1fr]">
+            <section className="rounded-lg border border-line bg-panel p-5">
+              <h3 className="text-xl font-black">Staff Clock</h3>
+              <label className="mt-5 block text-sm font-semibold text-zinc-400">Employee</label>
+              <select
+                value={selectedStaffId}
+                onChange={(event) => setSelectedStaffId(event.target.value)}
+                className="mt-2 min-h-14 w-full rounded-lg border border-line bg-ink px-4 text-white outline-none focus:border-orange"
+              >
+                {staffDirectory.map((staff) => (
+                  <option key={staff.id} value={staff.id}>
+                    {staff.name} - {staff.role}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => clock("in")}
+                  className="min-h-14 rounded-lg border border-emerald-400/30 bg-emerald-500/10 font-black text-emerald-200"
+                >
+                  Clock In
+                </button>
+                <button
+                  onClick={() => clock("out")}
+                  className="min-h-14 rounded-lg border border-line bg-ink font-black"
+                >
+                  Clock Out
+                </button>
+              </div>
+              <div className="mt-5 rounded-lg border border-line bg-ink p-4">
+                <div className="text-sm text-zinc-400">Today On Duty</div>
+                <div className="mt-2 text-5xl font-black text-emerald-300">{onDuty.length}</div>
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-line bg-panel p-5">
+              <h3 className="text-xl font-black">{editingStaff ? "Edit Staff Name" : "Staff Directory"}</h3>
+              <div className="mt-4 space-y-3">
+                <div>
+                  <label className="text-sm font-semibold text-zinc-400">Staff Name</label>
+                  <input
+                    value={staffForm.name}
+                    onChange={(event) => setStaffForm({ ...staffForm, name: event.target.value })}
+                    placeholder="Enter staff name"
+                    className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-4 text-white outline-none focus:border-orange"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm font-semibold text-zinc-400">Role</label>
+                    <input
+                      value={staffForm.role}
+                      onChange={(event) => setStaffForm({ ...staffForm, role: event.target.value })}
+                      className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-zinc-400">PIN</label>
+                    <input
+                      value={staffForm.pin}
+                      onChange={(event) => setStaffForm({ ...staffForm, pin: event.target.value })}
+                      inputMode="numeric"
+                      className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={saveStaff}
+                    className="min-h-12 rounded-lg bg-orange font-black text-black"
+                  >
+                    {editingStaff ? "Save Staff" : "Add Staff"}
+                  </button>
+                  <button
+                    onClick={() => setStaffForm(emptyStaffForm)}
+                    className="min-h-12 rounded-lg border border-line bg-ink font-black"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                {staffDirectory.map((staff) => (
+                  <div key={staff.id} className="rounded-lg border border-line bg-ink p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-black">{staff.name}</div>
+                        <div className="mt-1 text-sm text-zinc-400">
+                          {staff.role} / PIN {staff.pin}
+                        </div>
+                      </div>
+                      <span className="rounded-full border border-line bg-panel px-2 py-1 text-xs font-bold text-zinc-300">
+                        Login
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setStaffForm({ ...staff })}
+                        className="min-h-10 rounded-md border border-line bg-panel text-xs font-bold"
+                      >
+                        Edit Name
+                      </button>
+                      <button
+                        onClick={() => deleteStaff(staff.id)}
+                        className="min-h-10 rounded-md border border-rose-400/30 bg-rose-500/10 text-xs font-bold text-rose-200"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-line bg-panel p-5">
+              <h3 className="text-xl font-black">Today Staff Attendance</h3>
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {todayCards.map((card) => (
+                  <div key={card.id} className="rounded-lg border border-line bg-ink p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-lg font-black">{card.staffName}</div>
+                        <div className="mt-1 text-sm text-zinc-400">{card.role}</div>
+                      </div>
+                      <span
+                        className={cx(
+                          "rounded-full border px-3 py-1 text-xs font-bold",
+                          card.clockOut ? statusClass("Served") : statusClass("Available")
+                        )}
+                      >
+                        {card.clockOut ? "Clocked Out" : "On Duty"}
+                      </span>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                      <div className="rounded-md bg-panel p-3">
+                        <div className="text-zinc-500">Clock In</div>
+                        <div className="font-bold">{displayTime(card.clockIn)}</div>
+                      </div>
+                      <div className="rounded-md bg-panel p-3">
+                        <div className="text-zinc-500">Clock Out</div>
+                        <div className="font-bold">{card.clockOut ? displayTime(card.clockOut) : "-"}</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {todayCards.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-line p-8 text-center text-zinc-500">
+                    No staff clock records today.
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
+        );
+      }
+
+      function MenuManagerView({ state, setState, categories }) {
+        const emptyForm = {
+          id: "",
+          name: "",
+          category: categories[0],
+          price: "",
+          image: "",
+          popular: false,
+          soldOut: false,
+        };
+        const [form, setForm] = useState(emptyForm);
+        const editing = Boolean(form.id);
+
+        function saveItem() {
+          if (!form.name.trim() || !Number(form.price)) return;
+          const item = {
+            ...form,
+            id: form.id || uid("menu"),
+            name: form.name.trim(),
+            price: Number(form.price),
+            image: form.image.trim() || image("photo-1504674900247-0877df9cc836"),
+            popular: Boolean(form.popular),
+            soldOut: Boolean(form.soldOut),
+          };
+          setState((current) => ({
+            ...current,
+            menuItems: editing
+              ? current.menuItems.map((menuItem) => (menuItem.id === item.id ? item : menuItem))
+              : [item, ...current.menuItems],
+          }));
+          setForm(emptyForm);
+        }
+
+        function removeItem(id) {
+          setState((current) => ({
+            ...current,
+            menuItems: current.menuItems.filter((item) => item.id !== id),
+          }));
+          if (form.id === id) setForm(emptyForm);
+        }
+
+        function toggleSoldOut(id) {
+          setState((current) => ({
+            ...current,
+            menuItems: current.menuItems.map((item) =>
+              item.id === id ? { ...item, soldOut: !item.soldOut } : item
+            ),
+          }));
+        }
+
+        return (
+          <div className="grid h-full grid-cols-1 gap-5 overflow-auto p-5 xl:grid-cols-[420px_1fr]">
+            <section className="rounded-lg border border-line bg-panel p-5">
+              <h3 className="text-xl font-black">{editing ? "Edit Menu Item" : "Add Menu Item"}</h3>
+              <div className="mt-5 space-y-4">
+                <div>
+                  <label className="text-sm font-semibold text-zinc-400">Food Name</label>
+                  <input
+                    value={form.name}
+                    onChange={(event) => setForm({ ...form, name: event.target.value })}
+                    className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-4 text-white outline-none focus:border-orange"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm font-semibold text-zinc-400">Category</label>
+                    <select
+                      value={form.category}
+                      onChange={(event) => setForm({ ...form, category: event.target.value })}
+                      className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                    >
+                      {categories.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-zinc-400">Price</label>
+                    <input
+                      value={form.price}
+                      onChange={(event) => setForm({ ...form, price: event.target.value })}
+                      inputMode="decimal"
+                      className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-zinc-400">Image URL</label>
+                  <input
+                    value={form.image}
+                    onChange={(event) => setForm({ ...form, image: event.target.value })}
+                    placeholder="https://..."
+                    className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-4 text-white outline-none focus:border-orange"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="flex min-h-12 items-center gap-3 rounded-lg border border-line bg-ink px-4">
+                    <input
+                      type="checkbox"
+                      checked={form.popular}
+                      onChange={(event) => setForm({ ...form, popular: event.target.checked })}
+                    />
+                    <span className="font-semibold">Popular</span>
+                  </label>
+                  <label className="flex min-h-12 items-center gap-3 rounded-lg border border-line bg-ink px-4">
+                    <input
+                      type="checkbox"
+                      checked={form.soldOut}
+                      onChange={(event) => setForm({ ...form, soldOut: event.target.checked })}
+                    />
+                    <span className="font-semibold">Sold Out</span>
+                  </label>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={saveItem}
+                    className="min-h-14 rounded-lg bg-orange font-black text-black"
+                  >
+                    {editing ? "Save Changes" : "Add Item"}
+                  </button>
+                  <button
+                    onClick={() => setForm(emptyForm)}
+                    className="min-h-14 rounded-lg border border-line bg-ink font-black"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-line bg-panel p-5">
+              <h3 className="text-xl font-black">Menu Back Office</h3>
+              <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                {state.menuItems.map((item) => (
+                  <div key={item.id} className="flex gap-4 rounded-lg border border-line bg-ink p-3">
+                    <img src={item.image} alt={item.name} className="h-24 w-24 rounded-md object-cover" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-black">{item.name}</div>
+                          <div className="mt-1 text-sm text-zinc-400">
+                            {item.category} / {money(item.price)}
+                          </div>
+                        </div>
+                        <span className={cx("rounded-full border px-2 py-1 text-xs font-bold", item.soldOut ? statusClass("Held") : statusClass("Available"))}>
+                          {item.soldOut ? "Sold Out" : "Available"}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <button
+                          onClick={() => setForm({ ...item, price: String(item.price) })}
+                          className="min-h-10 rounded-md border border-line bg-panel text-xs font-bold"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => toggleSoldOut(item.id)}
+                          className="min-h-10 rounded-md border border-line bg-panel text-xs font-bold"
+                        >
+                          Sold Out
+                        </button>
+                        <button
+                          onClick={() => removeItem(item.id)}
+                          className="min-h-10 rounded-md border border-rose-400/30 bg-rose-500/10 text-xs font-bold text-rose-200"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        );
+      }
+
+      function SettingsView({ state, setState }) {
+        const settings = { ...defaultSettings, ...(state.settings || {}) };
+        const staffDirectory = state.staff?.length ? state.staff : defaultStaffDirectory;
+        const emptyStaffForm = { id: "", name: "", role: "Server", pin: "" };
+        const [settingsForm, setSettingsForm] = useState(settings);
+        const [staffForm, setStaffForm] = useState(emptyStaffForm);
+        const editingStaff = Boolean(staffForm.id);
+
+        function saveSettings() {
+          setState((current) => ({
+            ...current,
+            settings: {
+              businessName: settingsForm.businessName.trim() || defaultSettings.businessName,
+              tagline: settingsForm.tagline.trim() || defaultSettings.tagline,
+              managerName: settingsForm.managerName.trim() || defaultSettings.managerName,
+              managerPin: settingsForm.managerPin.trim() || defaultSettings.managerPin,
+            },
+          }));
+        }
+
+        function saveStaff() {
+          if (!staffForm.name.trim() || !staffForm.pin.trim()) return;
+          const nextStaff = {
+            id: staffForm.id || uid("staff"),
+            name: staffForm.name.trim(),
+            role: staffForm.role.trim() || "Server",
+            pin: staffForm.pin.trim(),
+          };
+          setState((current) => saveStaffToState(current, nextStaff, editingStaff));
+          setStaffForm(emptyStaffForm);
+        }
+
+        function deleteStaff(id) {
+          setState((current) => deleteStaffFromState(current, id));
+          if (staffForm.id === id) setStaffForm(emptyStaffForm);
+        }
+
+        return (
+          <div className="grid h-full grid-cols-1 gap-5 overflow-auto p-5 xl:grid-cols-[420px_1fr]">
+            <section className="rounded-lg border border-line bg-panel p-5">
+              <h3 className="text-xl font-black">Store Name & Login</h3>
+              <div className="mt-5 space-y-4">
+                <div>
+                  <label className="text-sm font-semibold text-zinc-400">POS / Store Name</label>
+                  <input
+                    value={settingsForm.businessName}
+                    onChange={(event) => setSettingsForm({ ...settingsForm, businessName: event.target.value })}
+                    className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-4 text-white outline-none focus:border-orange"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-zinc-400">Subtitle</label>
+                  <input
+                    value={settingsForm.tagline}
+                    onChange={(event) => setSettingsForm({ ...settingsForm, tagline: event.target.value })}
+                    className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-4 text-white outline-none focus:border-orange"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm font-semibold text-zinc-400">Manager Name</label>
+                    <input
+                      value={settingsForm.managerName}
+                      onChange={(event) => setSettingsForm({ ...settingsForm, managerName: event.target.value })}
+                      className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-zinc-400">Manager PIN</label>
+                    <input
+                      value={settingsForm.managerPin}
+                      onChange={(event) => setSettingsForm({ ...settingsForm, managerPin: event.target.value })}
+                      inputMode="numeric"
+                      className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                    />
+                  </div>
+                </div>
+                <button
+                  onClick={saveSettings}
+                  className="min-h-14 w-full rounded-lg bg-orange font-black text-black"
+                >
+                  Save Store Settings
+                </button>
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-line bg-panel p-5">
+              <div className="grid grid-cols-1 gap-5 xl:grid-cols-[360px_1fr]">
+                <div>
+                  <h3 className="text-xl font-black">{editingStaff ? "Edit Staff" : "Add Staff"}</h3>
+                  <div className="mt-5 space-y-4">
+                    <div>
+                      <label className="text-sm font-semibold text-zinc-400">Staff Name</label>
+                      <input
+                        value={staffForm.name}
+                        onChange={(event) => setStaffForm({ ...staffForm, name: event.target.value })}
+                        className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-4 text-white outline-none focus:border-orange"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm font-semibold text-zinc-400">Role</label>
+                        <input
+                          value={staffForm.role}
+                          onChange={(event) => setStaffForm({ ...staffForm, role: event.target.value })}
+                          className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-semibold text-zinc-400">PIN</label>
+                        <input
+                          value={staffForm.pin}
+                          onChange={(event) => setStaffForm({ ...staffForm, pin: event.target.value })}
+                          inputMode="numeric"
+                          className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={saveStaff}
+                        className="min-h-14 rounded-lg bg-orange font-black text-black"
+                      >
+                        {editingStaff ? "Save Staff" : "Add Staff"}
+                      </button>
+                      <button
+                        onClick={() => setStaffForm(emptyStaffForm)}
+                        className="min-h-14 rounded-lg border border-line bg-ink font-black"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-xl font-black">Staff Login Names</h3>
+                  <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    {staffDirectory.map((staff) => (
+                      <div key={staff.id} className="rounded-lg border border-line bg-ink p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-lg font-black">{staff.name}</div>
+                            <div className="mt-1 text-sm text-zinc-400">
+                              {staff.role} / PIN {staff.pin}
+                            </div>
+                          </div>
+                          <span className="rounded-full border border-line bg-panel px-3 py-1 text-xs font-bold text-zinc-300">
+                            Staff
+                          </span>
+                        </div>
+                        <div className="mt-4 grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => setStaffForm({ ...staff })}
+                            className="min-h-10 rounded-md border border-line bg-panel text-xs font-bold"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => deleteStaff(staff.id)}
+                            className="min-h-10 rounded-md border border-rose-400/30 bg-rose-500/10 text-xs font-bold text-rose-200"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        );
+      }
+
+      function ReceiptModal({ receipt, onClose }) {
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-5">
+            <div className="w-full max-w-md rounded-lg border border-line bg-panel p-5 shadow-soft">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold uppercase tracking-[.18em] text-orange2">
+                    Payment Successful
+                  </div>
+                  <h3 className="mt-2 text-3xl font-black">Receipt</h3>
+                </div>
+                <button
+                  onClick={onClose}
+                  className="min-h-11 min-w-11 rounded-lg border border-line bg-ink font-black"
+                >
+                  X
+                </button>
+              </div>
+              <div className="mt-5 rounded-lg border border-line bg-ink p-4">
+                <div className="flex justify-between text-sm">
+                  <span className="text-zinc-400">Order</span>
+                  <span className="font-bold">{receipt.orderNumber}</span>
+                </div>
+                <div className="mt-2 flex justify-between text-sm">
+                  <span className="text-zinc-400">Table</span>
+                  <span>{receipt.tableId ? `Table ${receipt.tableId}` : "Takeaway"}</span>
+                </div>
+                <div className="mt-2 flex justify-between text-sm">
+                  <span className="text-zinc-400">Payment</span>
+                  <span>{receipt.method}</span>
+                </div>
+                {receipt.method === "Split Bill" && (
+                  <div className="mt-2 flex justify-between text-sm">
+                    <span className="text-zinc-400">Split</span>
+                    <span>{receipt.splitCount} guests / {money(receipt.total / receipt.splitCount)} each</span>
+                  </div>
+                )}
+                <div className="my-4 border-t border-line"></div>
+                <div className="space-y-2">
+                  {receipt.items.map((item) => (
+                    <div key={item.id} className="flex justify-between gap-3 text-sm">
+                      <span>{item.qty}x {item.name}</span>
+                      <span>{money(item.price * item.qty)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="my-4 border-t border-line"></div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between text-zinc-300">
+                    <span>Subtotal</span>
+                    <span>{money(receipt.subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between text-zinc-300">
+                    <span>Service 10%</span>
+                    <span>{money(receipt.service)}</span>
+                  </div>
+                  <div className="flex justify-between text-zinc-300">
+                    <span>GST 9%</span>
+                    <span>{money(receipt.gst)}</span>
+                  </div>
+                  <div className="flex justify-between text-zinc-300">
+                    <span>Discount</span>
+                    <span>{money(receipt.discount)}</span>
+                  </div>
+                  <div className="flex justify-between pt-2 text-2xl font-black text-orange2">
+                    <span>Total</span>
+                    <span>{money(receipt.total)}</span>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                className="mt-5 min-h-14 w-full rounded-lg bg-orange font-black text-black"
+              >
+                Close Receipt
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      function App() {
+        const [state, setState] = useState(loadState);
+        const [user, setUser] = useState(() => {
+          try {
+            return JSON.parse(localStorage.getItem(SESSION_KEY));
+          } catch (error) {
+            return null;
+          }
+        });
+
+        useEffect(() => {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          document.title = `${state.settings?.businessName || defaultSettings.businessName} | ${state.settings?.tagline || defaultSettings.tagline}`;
+        }, [state]);
+
+        if (!user) {
+          return <LoginScreen state={state} setState={setState} onLogin={setUser} />;
+        }
+
+        return <AppShell user={user} setUser={setUser} state={state} setState={setState} />;
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>
