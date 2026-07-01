@@ -21,14 +21,14 @@
 
 Staff PIN:
 
-- Alicia Tan: `1111`
+- SengKhoo: `1111`
 - Ben Lim: `2222`
 - Chloe Ng: `3333`
 - Daniel Koh: `4444`
 
 Manager PIN:
 
-- Manager: `0000`
+- Manager: `1234`
 
 Manager 可以进入 Sales、Staff、Menu 后台管理页面；Staff 只能使用桌台、点餐、KDS、收银和自己的打卡功能。
 
