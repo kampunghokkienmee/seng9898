@@ -11,24 +11,25 @@
 - 当前订单：Subtotal、Service Charge 10%、GST 9%、Discount、Total
 - Hold Order / Send to Kitchen
 - KDS 厨房显示：New / Preparing / Ready / Served
-- 收银付款：Cash / Card / PayNow / QR Pay / Split Bill
-- 付款成功后生成 Receipt
-- Sales 报表：今日销售额、订单数、平均订单、热卖菜品、付款方式统计、图表
-- 员工管理：今日上班员工、打卡记录
+- 收银付款：Cash / Card / PayNow / QR Pay / Split Bill、现金找零、付款参考编号
+- 付款成功后生成 Receipt，并可用浏览器打印小票
+- Sales 报表：今日/本月/全部收入、订单数、平均订单、收入拆分、热卖菜品、付款方式统计、图表
+- 员工管理：今日上班员工、打卡记录、今日工时、本月工时
 - 后台菜单管理：添加、改价、删除、修改图片、Popular、Sold Out
+- Cloud Sync：可接 Firebase Realtime Database，让手机、iPad、电脑同步订单、桌台、Sales、员工打卡和菜单
 
 ## 登录
 
 Staff PIN:
 
-- SengKhoo: `1111`
+- Alicia Tan: `1111`
 - Ben Lim: `2222`
 - Chloe Ng: `3333`
 - Daniel Koh: `4444`
 
 Manager PIN:
 
-- Manager: `1234`
+- Manager: `0000`
 
 Manager 可以进入 Sales、Staff、Menu 后台管理页面；Staff 只能使用桌台、点餐、KDS、收银和自己的打卡功能。
 
@@ -59,10 +60,11 @@ http://127.0.0.1:4173/
 3. 点击任意食物卡片加入订单。
 4. 在右侧订单栏调整数量、删除菜品、设置备注或折扣。
 5. 点击 `Send to Kitchen`，到 KDS 页面查看厨房工单。
-6. 点击 `Cashier`，选择付款方式并点击 `Simulate Payment Success`。
-7. 查看生成的 Receipt。
-8. 进入 `Sales` 查看今日销售、热卖菜品和付款方式统计。
-9. 进入 `Menu` 添加菜品、改价、改图片、删除或设置 Sold Out。
+6. 点击 `Cashier`，选择付款方式；Cash 会计算找零，Card / QR Pay 可以填付款参考编号。
+7. 点击 `Complete Payment & Receipt`，查看生成的 Receipt。
+8. 点击 `Print Receipt` 可用电脑/平板浏览器选择小票打印机打印。
+9. 进入 `Sales` 查看今日、本月、全部收入、热卖菜品和付款方式统计。
+10. 进入 `Menu` 添加菜品、改价、改图片、删除或设置 Sold Out。
 
 登录页和 Manager 顶部都有 `Reset Demo Data` / `Reset Demo`，可一键清空测试数据并恢复初始状态。
 
@@ -114,6 +116,8 @@ http://127.0.0.1:4173/
 - 付款和销售记录
 - 员工打卡记录
 
+Sales 报表是根据付款记录自动统计，所以每天和每月都会保留记录。只要不清除浏览器 LocalStorage，旧日期的销售和打卡资料都会继续存在。
+
 LocalStorage key:
 
 ```text
@@ -122,3 +126,30 @@ aurora-ipad-pos-session-v1
 ```
 
 需要清空测试数据时，可以在浏览器开发者工具里删除以上两个 LocalStorage key。
+
+## 手机 / iPad / 电脑同步
+
+纯 LocalStorage 只会保存在当前设备。要让手机、iPad、电脑同步，需要开启 `Setup -> Cloud Sync`。
+
+这个版本预留 Firebase Realtime Database 同步：
+
+1. 建立 Firebase project。
+2. 开启 Realtime Database。
+3. 在 Firebase project settings 复制 Web app config。
+4. 用 Manager 登录 POS。
+5. 进入 `Setup -> Cloud Sync`。
+6. 勾选 `Enable multi-device sync`。
+7. 填入 Restaurant Sync ID、API Key、Database URL、Project ID、Auth Domain、App ID。
+8. 点击 `Save Cloud Sync`。
+9. 手机、iPad、电脑打开同一个 POS 网站，并填同一组 Cloud Sync 设置。
+
+同步范围：
+
+- 桌号状态
+- 当前订单
+- KDS 厨房单
+- 付款和 Sales
+- 员工打卡
+- 菜单和员工设置
+
+注意：GitHub Pages 只负责打开网页，不负责保存多设备数据；真正同步靠 Firebase。
