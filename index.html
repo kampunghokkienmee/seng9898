@@ -3,11 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Aurora POS | iPad Restaurant POS</title>
+    <title>某招牌麵館 POS</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
     <script>
       tailwind.config = {
         theme: {
@@ -61,16 +63,56 @@
         -ms-overflow-style: none;
         scrollbar-width: none;
       }
+
+      @media print {
+        body.receipt-printing {
+          background: #fff;
+          color: #111;
+        }
+
+        body.receipt-printing * {
+          visibility: hidden !important;
+        }
+
+        body.receipt-printing #receipt-print-area,
+        body.receipt-printing #receipt-print-area * {
+          visibility: visible !important;
+        }
+
+        body.receipt-printing #receipt-print-area {
+          position: fixed;
+          inset: 0 auto auto 0;
+          width: 80mm;
+          max-width: none;
+          border: 0 !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          background: #fff !important;
+          color: #111 !important;
+        }
+
+        body.receipt-printing #receipt-print-area * {
+          background: transparent !important;
+          color: #111 !important;
+          border-color: #ddd !important;
+        }
+
+        body.receipt-printing .screen-only {
+          display: none !important;
+        }
+      }
     </style>
   </head>
   <body>
     <div id="root"></div>
 
     <script type="text/babel" data-plugins="transform-react-jsx">
-      const { useEffect, useMemo, useState } = React;
+      const { useEffect, useMemo, useRef, useState } = React;
 
       const STORAGE_KEY = "aurora-ipad-pos-state-v1";
       const SESSION_KEY = "aurora-ipad-pos-session-v1";
+      const CLOUD_CONFIG_KEY = "aurora-ipad-pos-cloud-config-v1";
+      const DEVICE_ID_KEY = "aurora-ipad-pos-device-id-v1";
       const MENU_VERSION = "chinese-noodle-v1";
       const SETTINGS_VERSION = "signature-noodle-house-v1";
       const TAX_RATE = 0.09;
@@ -89,6 +131,16 @@
         tagline: "iPad Restaurant POS",
         managerName: "Manager",
         managerPin: "0000",
+      };
+
+      const defaultCloudConfig = {
+        enabled: false,
+        restaurantId: "signature-noodle-house",
+        apiKey: "",
+        authDomain: "",
+        databaseURL: "",
+        projectId: "",
+        appId: "",
       };
 
       const defaultStaffDirectory = [
@@ -173,12 +225,54 @@
         }).format(new Date(value));
       }
 
+      function displayDate(value = new Date()) {
+        return new Intl.DateTimeFormat("en-SG", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        }).format(new Date(value));
+      }
+
+      function monthKey(value = new Date()) {
+        return todayKey(new Date(value)).slice(0, 7);
+      }
+
       function money(value) {
         return new Intl.NumberFormat("en-SG", {
           style: "currency",
           currency: "SGD",
           minimumFractionDigits: 2,
         }).format(Number(value || 0));
+      }
+
+      function roundCurrency(value) {
+        return Math.round(Number(value || 0) * 100) / 100;
+      }
+
+      function shiftHours(card) {
+        if (!card?.clockIn) return 0;
+        const start = new Date(card.clockIn).getTime();
+        const end = card.clockOut ? new Date(card.clockOut).getTime() : Date.now();
+        return Math.max(0, (end - start) / 3600000);
+      }
+
+      function formatHours(value) {
+        return `${Number(value || 0).toFixed(1)}h`;
+      }
+
+      function summarizePayments(payments) {
+        return payments.reduce(
+          (acc, payment) => {
+            acc.orders += 1;
+            acc.subtotal += Number(payment.subtotal || 0);
+            acc.service += Number(payment.service || 0);
+            acc.gst += Number(payment.gst || 0);
+            acc.discount += Number(payment.discount || 0);
+            acc.total += Number(payment.total || 0);
+            return acc;
+          },
+          { orders: 0, subtotal: 0, service: 0, gst: 0, discount: 0, total: 0 }
+        );
       }
 
       function seedTables() {
@@ -237,39 +331,92 @@
         };
       }
 
+      function hydrateState(saved) {
+        if (!saved) return emptyState();
+        const shouldUseDefaultMenu = saved.menuVersion !== MENU_VERSION;
+        const shouldUseDefaultSettings = saved.settingsVersion !== SETTINGS_VERSION;
+        return {
+          ...emptyState(),
+          ...saved,
+          menuVersion: MENU_VERSION,
+          settingsVersion: SETTINGS_VERSION,
+          settings: shouldUseDefaultSettings
+            ? { ...defaultSettings, ...(saved.settings || {}), businessName: defaultSettings.businessName }
+            : { ...defaultSettings, ...(saved.settings || {}) },
+          staff: saved.staff?.length ? saved.staff : defaultStaffDirectory.map((staff) => ({ ...staff })),
+          tables: saved.tables?.length === 20 ? saved.tables : seedTables(),
+          menuItems: cleanMenu(shouldUseDefaultMenu ? defaultMenu : saved.menuItems?.length ? saved.menuItems : defaultMenu),
+          orders: saved.orders || [],
+          kitchenTickets: saved.kitchenTickets || [],
+          payments: saved.payments || [],
+          timecards: saved.timecards || [],
+        };
+      }
+
       function loadState() {
         try {
           const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-          if (!saved) return emptyState();
-          const shouldUseDefaultMenu = saved.menuVersion !== MENU_VERSION;
-          const shouldUseDefaultSettings = saved.settingsVersion !== SETTINGS_VERSION;
-          return {
-            ...emptyState(),
-            ...saved,
-            menuVersion: MENU_VERSION,
-            settingsVersion: SETTINGS_VERSION,
-            settings: shouldUseDefaultSettings
-              ? { ...defaultSettings, ...(saved.settings || {}), businessName: defaultSettings.businessName }
-              : { ...defaultSettings, ...(saved.settings || {}) },
-            staff: saved.staff?.length ? saved.staff : defaultStaffDirectory.map((staff) => ({ ...staff })),
-            tables: saved.tables?.length === 20 ? saved.tables : seedTables(),
-            menuItems: cleanMenu(shouldUseDefaultMenu ? defaultMenu : saved.menuItems?.length ? saved.menuItems : defaultMenu),
-            orders: saved.orders || [],
-            kitchenTickets: saved.kitchenTickets || [],
-            payments: saved.payments || [],
-            timecards: saved.timecards || [],
-          };
+          return hydrateState(saved);
         } catch (error) {
           return emptyState();
         }
       }
 
+      function loadCloudConfig() {
+        try {
+          const saved = JSON.parse(localStorage.getItem(CLOUD_CONFIG_KEY));
+          return { ...defaultCloudConfig, ...(saved || {}) };
+        } catch (error) {
+          return { ...defaultCloudConfig };
+        }
+      }
+
+      function getDeviceId() {
+        const saved = localStorage.getItem(DEVICE_ID_KEY);
+        if (saved) return saved;
+        const next = uid("device");
+        localStorage.setItem(DEVICE_ID_KEY, next);
+        return next;
+      }
+
+      function sanitizeCloudPath(value) {
+        return String(value || "default-store")
+          .trim()
+          .replace(/[.#$/[\]]/g, "-")
+          .replace(/\s+/g, "-")
+          .slice(0, 80) || "default-store";
+      }
+
+      function hasCloudConfig(config) {
+        return Boolean(
+          config?.enabled &&
+          config.apiKey?.trim() &&
+          config.databaseURL?.trim() &&
+          config.projectId?.trim() &&
+          config.restaurantId?.trim()
+        );
+      }
+
+      function cloudStatePath(config) {
+        return `restaurants/${sanitizeCloudPath(config.restaurantId)}/posState`;
+      }
+
+      function firebaseOptions(config) {
+        return {
+          apiKey: config.apiKey.trim(),
+          authDomain: config.authDomain.trim() || undefined,
+          databaseURL: config.databaseURL.trim(),
+          projectId: config.projectId.trim(),
+          appId: config.appId.trim() || undefined,
+        };
+      }
+
       function calcOrder(order) {
-        const subtotal = (order?.items || []).reduce((sum, item) => sum + item.price * item.qty, 0);
-        const discount = Number(order?.discount || 0);
-        const service = subtotal * SERVICE_RATE;
-        const gst = (subtotal + service - discount) * TAX_RATE;
-        const total = Math.max(0, subtotal + service + gst - discount);
+        const subtotal = roundCurrency((order?.items || []).reduce((sum, item) => sum + item.price * item.qty, 0));
+        const discount = roundCurrency(order?.discount || 0);
+        const service = roundCurrency(subtotal * SERVICE_RATE);
+        const gst = roundCurrency((subtotal + service - discount) * TAX_RATE);
+        const total = roundCurrency(Math.max(0, subtotal + service + gst - discount));
         return { subtotal, service, gst, discount, total };
       }
 
@@ -497,7 +644,7 @@
         );
       }
 
-      function AppShell({ user, setUser, state, setState }) {
+      function AppShell({ user, setUser, state, setState, cloudConfig, setCloudConfig, syncStatus }) {
         const settings = { ...defaultSettings, ...(state.settings || {}) };
         const staffDirectory = state.staff?.length ? state.staff : defaultStaffDirectory;
         const [view, setView] = useState("tables");
@@ -506,11 +653,19 @@
         const [selectedOrderId, setSelectedOrderId] = useState(null);
         const [receipt, setReceipt] = useState(null);
 
-        const activeOrder = state.orders.find((order) => order.id === activeOrderId) || null;
-        const selectedOrder = state.orders.find((order) => order.id === selectedOrderId) || activeOrder || null;
         const openOrders = state.orders.filter((order) => order.status !== "Paid");
+        const activeOrder = state.orders.find((order) => order.id === activeOrderId) || null;
+        const selectedOrder = state.orders.find((order) => order.id === selectedOrderId) || activeOrder || openOrders[0] || null;
         const todayPayments = state.payments.filter((payment) => payment.date === todayKey());
         const onDuty = state.timecards.filter((card) => card.date === todayKey() && !card.clockOut);
+        const syncTone =
+          syncStatus.kind === "online"
+            ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-200"
+            : syncStatus.kind === "error"
+            ? "border-rose-400/30 bg-rose-500/10 text-rose-200"
+            : syncStatus.kind === "syncing" || syncStatus.kind === "connecting"
+            ? "border-sky-400/30 bg-sky-500/10 text-sky-200"
+            : "border-line bg-panel text-zinc-300";
 
         function logout() {
           localStorage.removeItem(SESSION_KEY);
@@ -714,7 +869,7 @@
           }));
         }
 
-        function completePayment(order, method, splitCount) {
+        function completePayment(order, method, splitCount, paymentMeta = {}) {
           const totals = calcOrder(order);
           if (!order || order.items.length === 0 || totals.total <= 0) return;
 
@@ -725,6 +880,10 @@
             tableId: order.tableId,
             method,
             splitCount,
+            tendered: Number(paymentMeta.tendered || totals.total),
+            changeDue: Number(paymentMeta.changeDue || 0),
+            reference: paymentMeta.reference || "",
+            collectedBy: user.name,
             date: todayKey(),
             paidAt: new Date().toISOString(),
             items: order.items.map((item) => ({ ...item })),
@@ -873,6 +1032,10 @@
                       {money(todayPayments.reduce((sum, payment) => sum + payment.total, 0))}
                     </div>
                   </div>
+                  <div className={cx("hidden rounded-lg border px-4 py-3 lg:block", syncTone)}>
+                    <div className="text-xs opacity-75">Sync</div>
+                    <div className="text-sm font-black">{syncStatus.label}</div>
+                  </div>
                   {user.role === "manager" && (
                     <button
                       onClick={resetDemo}
@@ -945,12 +1108,18 @@
                   <MenuManagerView state={state} setState={setState} categories={CATEGORIES} />
                 )}
                 {view === "settings" && (
-                  <SettingsView state={state} setState={setState} />
+                  <SettingsView
+                    state={state}
+                    setState={setState}
+                    cloudConfig={cloudConfig}
+                    setCloudConfig={setCloudConfig}
+                    syncStatus={syncStatus}
+                  />
                 )}
               </section>
             </main>
 
-            {receipt && <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />}
+            {receipt && <ReceiptModal receipt={receipt} settings={settings} onClose={() => setReceipt(null)} />}
           </div>
         );
       }
@@ -1402,8 +1571,35 @@
       function CashierView({ orders, selectedOrder, onSelect, onPayment, onTables }) {
         const [method, setMethod] = useState("Cash");
         const [splitCount, setSplitCount] = useState(2);
+        const [cashReceived, setCashReceived] = useState("");
+        const [paymentRef, setPaymentRef] = useState("");
         const totals = calcOrder(selectedOrder);
-        const perGuest = method === "Split Bill" ? totals.total / Math.max(1, splitCount) : totals.total;
+        const splitQty = Math.max(1, Number(splitCount || 1));
+        const perGuest = method === "Split Bill" ? totals.total / splitQty : totals.total;
+        const cashTendered = Number(cashReceived || 0);
+        const cashShort = method === "Cash" && cashTendered < totals.total;
+        const changeDue = method === "Cash" ? Math.max(0, cashTendered - totals.total) : 0;
+        const needsReference = method === "Card" || method === "PayNow / QR Pay";
+        const canPay = Boolean(selectedOrder && selectedOrder.items.length > 0 && !cashShort);
+
+        useEffect(() => {
+          if (!selectedOrder?.id) {
+            setCashReceived("");
+            setPaymentRef("");
+            return;
+          }
+          setCashReceived(calcOrder(selectedOrder).total.toFixed(2));
+          setPaymentRef("");
+        }, [selectedOrder?.id]);
+
+        function submitPayment() {
+          if (!canPay) return;
+          onPayment(selectedOrder, method, method === "Split Bill" ? splitQty : 1, {
+            tendered: method === "Cash" ? cashTendered : totals.total,
+            changeDue,
+            reference: needsReference ? paymentRef.trim() : method === "Split Bill" ? `${splitQty} ways` : "",
+          });
+        }
 
         return (
           <div className="grid h-full grid-cols-1 gap-5 overflow-auto p-5 xl:grid-cols-[420px_1fr]">
@@ -1467,7 +1663,7 @@
                 )}
               </div>
 
-              <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
+              <div className="grid gap-5 xl:grid-cols-[1fr_390px]">
                 <div className="space-y-3">
                   {selectedOrder?.items.map((item) => (
                     <div key={item.id} className="flex items-center gap-4 rounded-lg border border-line bg-ink p-3">
@@ -1528,6 +1724,44 @@
                     ))}
                   </div>
 
+                  {method === "Cash" && (
+                    <div className="mt-4 rounded-lg border border-line bg-panel p-3">
+                      <label className="text-sm font-semibold text-zinc-400">Cash Received</label>
+                      <input
+                        value={cashReceived}
+                        onChange={(event) => setCashReceived(event.target.value)}
+                        inputMode="decimal"
+                        className="mt-2 min-h-12 w-full rounded-md border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                      />
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                        <div className="rounded-md bg-ink p-3">
+                          <div className="text-zinc-500">Change</div>
+                          <div className="text-lg font-black text-emerald-300">{money(changeDue)}</div>
+                        </div>
+                        <div className="rounded-md bg-ink p-3">
+                          <div className="text-zinc-500">Status</div>
+                          <div className={cx("text-lg font-black", cashShort ? "text-rose-300" : "text-emerald-300")}>
+                            {cashShort ? "Short" : "OK"}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {needsReference && (
+                    <div className="mt-4 rounded-lg border border-line bg-panel p-3">
+                      <label className="text-sm font-semibold text-zinc-400">
+                        {method === "Card" ? "Card Approval / Last 4" : "PayNow / QR Reference"}
+                      </label>
+                      <input
+                        value={paymentRef}
+                        onChange={(event) => setPaymentRef(event.target.value)}
+                        placeholder={method === "Card" ? "e.g. VISA 1234" : "e.g. QR-9281"}
+                        className="mt-2 min-h-12 w-full rounded-md border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                      />
+                    </div>
+                  )}
+
                   {method === "Split Bill" && (
                     <div className="mt-4 rounded-lg border border-line bg-panel p-3">
                       <label className="text-sm font-semibold text-zinc-400">Split Count</label>
@@ -1544,13 +1778,17 @@
                     </div>
                   )}
 
+                  <div className="mt-4 rounded-lg border border-orange/30 bg-orange/10 p-3 text-sm text-orange2">
+                    Payment success will open a receipt. Press Print Receipt to send it to your receipt printer.
+                  </div>
+
                   <button
-                    onClick={() => onPayment(selectedOrder, method, method === "Split Bill" ? splitCount : 1)}
+                    onClick={submitPayment}
                     data-testid="complete-payment"
-                    disabled={!selectedOrder || selectedOrder.items.length === 0}
+                    disabled={!canPay}
                     className="mt-5 min-h-16 w-full rounded-lg bg-orange text-lg font-black text-black disabled:opacity-40"
                   >
-                    Simulate Payment Success
+                    Complete Payment & Receipt
                   </button>
                 </div>
               </div>
@@ -1560,58 +1798,186 @@
       }
 
       function ReportsView({ payments }) {
-        const today = payments.filter((payment) => payment.date === todayKey());
-        const revenue = today.reduce((sum, payment) => sum + payment.total, 0);
-        const count = today.length;
-        const average = count ? revenue / count : 0;
+        const [range, setRange] = useState("today");
+        const [selectedDate, setSelectedDate] = useState(todayKey());
+        const [selectedMonth, setSelectedMonth] = useState(monthKey());
+
+        const filteredPayments = payments.filter((payment) => {
+          if (range === "today") return payment.date === selectedDate;
+          if (range === "month") return (payment.date || "").startsWith(selectedMonth);
+          return true;
+        });
+        const todayPayments = payments.filter((payment) => payment.date === todayKey());
+        const monthPayments = payments.filter((payment) => (payment.date || "").startsWith(monthKey()));
+        const report = summarizePayments(filteredPayments);
+        const todayReport = summarizePayments(todayPayments);
+        const monthReport = summarizePayments(monthPayments);
+        const average = report.orders ? report.total / report.orders : 0;
+        const netFoodSales = Math.max(0, report.subtotal - report.discount);
+
         const methodStats = PAYMENT_METHODS.reduce((acc, method) => {
-          acc[method] = today
-            .filter((payment) => payment.method === method)
-            .reduce((sum, payment) => sum + payment.total, 0);
+          const methodPayments = filteredPayments.filter((payment) => payment.method === method);
+          acc[method] = {
+            total: methodPayments.reduce((sum, payment) => sum + Number(payment.total || 0), 0),
+            count: methodPayments.length,
+          };
           return acc;
         }, {});
+
         const itemStats = {};
-        today.forEach((payment) => {
+        filteredPayments.forEach((payment) => {
           payment.items.forEach((item) => {
-            itemStats[item.name] = (itemStats[item.name] || 0) + item.qty;
+            if (!itemStats[item.name]) itemStats[item.name] = { name: item.name, qty: 0, sales: 0 };
+            itemStats[item.name].qty += Number(item.qty || 0);
+            itemStats[item.name].sales += Number(item.price || 0) * Number(item.qty || 0);
           });
         });
-        const hotItems = Object.entries(itemStats)
-          .sort((a, b) => b[1] - a[1])
+        const hotItems = Object.values(itemStats)
+          .sort((a, b) => b.qty - a.qty)
           .slice(0, 6);
-        const maxMethod = Math.max(1, ...Object.values(methodStats));
-        const maxHot = Math.max(1, ...hotItems.map((item) => item[1]));
+
+        const dailyMap = {};
+        filteredPayments.forEach((payment) => {
+          const key = payment.date || todayKey(payment.paidAt);
+          if (!dailyMap[key]) dailyMap[key] = { date: key, total: 0, orders: 0 };
+          dailyMap[key].total += Number(payment.total || 0);
+          dailyMap[key].orders += 1;
+        });
+        const dailyRows = Object.values(dailyMap)
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .slice(-14);
+
+        const maxMethod = Math.max(1, ...Object.values(methodStats).map((item) => item.total));
+        const maxHot = Math.max(1, ...hotItems.map((item) => item.qty));
+        const maxDaily = Math.max(1, ...dailyRows.map((item) => item.total));
 
         return (
           <div className="h-full overflow-auto p-5">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap gap-2">
+                {[
+                  ["today", "Today"],
+                  ["month", "This Month"],
+                  ["all", "All Sales"],
+                ].map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setRange(key)}
+                    className={cx(
+                      "min-h-12 rounded-lg border px-4 text-sm font-bold",
+                      range === key ? "border-orange bg-orange text-black" : "border-line bg-panel text-zinc-300"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {range === "today" && (
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(event) => setSelectedDate(event.target.value)}
+                    className="min-h-12 rounded-lg border border-line bg-panel px-3 text-white outline-none focus:border-orange"
+                  />
+                )}
+                {range === "month" && (
+                  <input
+                    type="month"
+                    value={selectedMonth}
+                    onChange={(event) => setSelectedMonth(event.target.value)}
+                    className="min-h-12 rounded-lg border border-line bg-panel px-3 text-white outline-none focus:border-orange"
+                  />
+                )}
+                <button
+                  onClick={() => window.print()}
+                  className="min-h-12 rounded-lg border border-line bg-panel px-4 text-sm font-bold text-zinc-300"
+                >
+                  Print Report
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
               {[
-                ["Today Sales", money(revenue), "All paid orders today"],
-                ["Today Orders", count, "Completed payments"],
+                ["Today Sales", money(todayReport.total), `${todayReport.orders} orders today`],
+                ["Month Sales", money(monthReport.total), `${monthReport.orders} orders this month`],
+                ["Selected Income", money(report.total), "Current report total"],
+                ["Orders", report.orders, "Completed payments"],
                 ["Average Order", money(average), "Revenue per order"],
               ].map(([title, value, copy]) => (
                 <div key={title} className="rounded-lg border border-line bg-panel p-5">
                   <div className="text-sm font-semibold uppercase tracking-[.18em] text-zinc-500">{title}</div>
-                  <div className="mt-3 text-4xl font-black text-orange2">{value}</div>
+                  <div className="mt-3 text-3xl font-black text-orange2">{value}</div>
                   <div className="mt-2 text-sm text-zinc-400">{copy}</div>
                 </div>
               ))}
             </div>
 
+            <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[420px_1fr]">
+              <section className="rounded-lg border border-line bg-panel p-5">
+                <h3 className="text-xl font-black">Income Breakdown</h3>
+                <div className="mt-5 space-y-3">
+                  {[
+                    ["Food Sales", report.subtotal],
+                    ["Discount", -report.discount],
+                    ["Net Food Sales", netFoodSales],
+                    ["Service Charge", report.service],
+                    ["GST", report.gst],
+                    ["Total Collected", report.total],
+                  ].map(([label, value]) => (
+                    <div key={label} className="flex items-center justify-between rounded-lg border border-line bg-ink p-3">
+                      <span className="text-sm text-zinc-400">{label}</span>
+                      <span className={cx("text-lg font-black", label === "Total Collected" ? "text-orange2" : "text-white")}>
+                        {money(value)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-line bg-panel p-5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-black">Daily Income Chart</h3>
+                  <span className="text-sm text-zinc-500">Last 14 active days</span>
+                </div>
+                <div className="mt-5 flex h-56 items-end gap-3 overflow-x-auto rounded-lg border border-line bg-ink p-4">
+                  {dailyRows.map((day) => (
+                    <div key={day.date} className="flex min-w-16 flex-1 flex-col items-center justify-end gap-2">
+                      <div className="text-xs font-bold text-orange2">{money(day.total)}</div>
+                      <div
+                        className="w-full rounded-t-md bg-orange"
+                        style={{ height: `${Math.max(12, (day.total / maxDaily) * 150)}px` }}
+                        title={`${day.date} / ${money(day.total)}`}
+                      ></div>
+                      <div className="text-center text-[11px] text-zinc-500">{day.date.slice(5)}</div>
+                    </div>
+                  ))}
+                  {dailyRows.length === 0 && (
+                    <div className="flex w-full items-center justify-center text-zinc-500">
+                      No sales data for this period.
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+
             <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
               <section className="rounded-lg border border-line bg-panel p-5">
-                <h3 className="text-xl font-black">Cash / Card / QR Pay</h3>
+                <h3 className="text-xl font-black">Payment Mix</h3>
                 <div className="mt-5 space-y-4">
                   {PAYMENT_METHODS.map((method) => (
                     <div key={method}>
                       <div className="mb-2 flex justify-between text-sm">
                         <span className="font-semibold">{method}</span>
-                        <span className="text-zinc-400">{money(methodStats[method])}</span>
+                        <span className="text-zinc-400">
+                          {methodStats[method].count} orders / {money(methodStats[method].total)}
+                        </span>
                       </div>
                       <div className="h-4 overflow-hidden rounded-full bg-ink">
                         <div
                           className="h-full rounded-full bg-orange"
-                          style={{ width: `${Math.max(4, (methodStats[method] / maxMethod) * 100)}%` }}
+                          style={{ width: `${Math.max(4, (methodStats[method].total / maxMethod) * 100)}%` }}
                         ></div>
                       </div>
                     </div>
@@ -1622,16 +1988,16 @@
               <section className="rounded-lg border border-line bg-panel p-5">
                 <h3 className="text-xl font-black">Hot Selling Items</h3>
                 <div className="mt-5 space-y-4">
-                  {hotItems.map(([name, qty]) => (
-                    <div key={name}>
+                  {hotItems.map((item) => (
+                    <div key={item.name}>
                       <div className="mb-2 flex justify-between text-sm">
-                        <span className="font-semibold">{name}</span>
-                        <span className="text-zinc-400">{qty} sold</span>
+                        <span className="font-semibold">{item.name}</span>
+                        <span className="text-zinc-400">{item.qty} sold / {money(item.sales)}</span>
                       </div>
                       <div className="h-4 overflow-hidden rounded-full bg-ink">
                         <div
                           className="h-full rounded-full bg-emerald-400"
-                          style={{ width: `${Math.max(8, (qty / maxHot) * 100)}%` }}
+                          style={{ width: `${Math.max(8, (item.qty / maxHot) * 100)}%` }}
                         ></div>
                       </div>
                     </div>
@@ -1646,32 +2012,42 @@
             </div>
 
             <section className="mt-5 rounded-lg border border-line bg-panel p-5">
-              <h3 className="text-xl font-black">Today Receipts</h3>
-              <div className="mt-4 overflow-hidden rounded-lg border border-line">
-                <table className="w-full text-left text-sm">
+              <h3 className="text-xl font-black">Receipt Records</h3>
+              <div className="mt-4 overflow-auto rounded-lg border border-line">
+                <table className="w-full min-w-[900px] text-left text-sm">
                   <thead className="bg-ink text-zinc-400">
                     <tr>
-                      <th className="p-3">Time</th>
+                      <th className="p-3">Date / Time</th>
                       <th className="p-3">Order</th>
                       <th className="p-3">Table</th>
                       <th className="p-3">Method</th>
+                      <th className="p-3">Payment Detail</th>
+                      <th className="p-3">Staff</th>
                       <th className="p-3 text-right">Total</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {today.map((payment) => (
+                    {filteredPayments.map((payment) => (
                       <tr key={payment.id} className="border-t border-line">
-                        <td className="p-3 text-zinc-400">{displayTime(payment.paidAt)}</td>
+                        <td className="p-3 text-zinc-400">
+                          {displayDate(payment.paidAt)} {displayTime(payment.paidAt)}
+                        </td>
                         <td className="p-3 font-semibold">{payment.orderNumber}</td>
                         <td className="p-3">{payment.tableId ? `Table ${payment.tableId}` : "Takeaway"}</td>
                         <td className="p-3">{payment.method}</td>
+                        <td className="p-3 text-zinc-400">
+                          {payment.method === "Cash"
+                            ? `Paid ${money(payment.tendered || payment.total)} / Change ${money(payment.changeDue || 0)}`
+                            : payment.reference || "-"}
+                        </td>
+                        <td className="p-3">{payment.collectedBy || "-"}</td>
                         <td className="p-3 text-right font-black text-orange2">{money(payment.total)}</td>
                       </tr>
                     ))}
-                    {today.length === 0 && (
+                    {filteredPayments.length === 0 && (
                       <tr>
-                        <td colSpan="5" className="p-8 text-center text-zinc-500">
-                          No payments today.
+                        <td colSpan="7" className="p-8 text-center text-zinc-500">
+                          No payments for this period.
                         </td>
                       </tr>
                     )}
@@ -1691,6 +2067,19 @@
         const selectedStaff = staffDirectory.find((staff) => staff.id === selectedStaffId) || staffDirectory[0];
         const todayCards = state.timecards.filter((card) => card.date === todayKey());
         const onDuty = todayCards.filter((card) => !card.clockOut);
+        const monthCards = state.timecards.filter((card) => (card.date || "").startsWith(monthKey()));
+        const todayHours = todayCards.reduce((sum, card) => sum + shiftHours(card), 0);
+        const monthHours = monthCards.reduce((sum, card) => sum + shiftHours(card), 0);
+        const staffHourRows = staffDirectory.map((staff) => {
+          const staffToday = todayCards.filter((card) => card.staffId === staff.id);
+          const staffMonth = monthCards.filter((card) => card.staffId === staff.id);
+          return {
+            ...staff,
+            todayHours: staffToday.reduce((sum, card) => sum + shiftHours(card), 0),
+            monthHours: staffMonth.reduce((sum, card) => sum + shiftHours(card), 0),
+            onDuty: staffToday.some((card) => !card.clockOut),
+          };
+        });
 
         useEffect(() => {
           if (!staffDirectory.find((staff) => staff.id === selectedStaffId)) {
@@ -1786,6 +2175,16 @@
                 <div className="text-sm text-zinc-400">Today On Duty</div>
                 <div className="mt-2 text-5xl font-black text-emerald-300">{onDuty.length}</div>
               </div>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="rounded-lg border border-line bg-ink p-4">
+                  <div className="text-sm text-zinc-400">Today Hours</div>
+                  <div className="mt-2 text-2xl font-black text-orange2">{formatHours(todayHours)}</div>
+                </div>
+                <div className="rounded-lg border border-line bg-ink p-4">
+                  <div className="text-sm text-zinc-400">Month Hours</div>
+                  <div className="mt-2 text-2xl font-black text-orange2">{formatHours(monthHours)}</div>
+                </div>
+              </div>
             </section>
 
             <section className="rounded-lg border border-line bg-panel p-5">
@@ -1870,6 +2269,32 @@
 
             <section className="rounded-lg border border-line bg-panel p-5">
               <h3 className="text-xl font-black">Today Staff Attendance</h3>
+              <div className="mt-4 overflow-hidden rounded-lg border border-line">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-ink text-zinc-400">
+                    <tr>
+                      <th className="p-3">Staff</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3 text-right">Today</th>
+                      <th className="p-3 text-right">This Month</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {staffHourRows.map((staff) => (
+                      <tr key={staff.id} className="border-t border-line">
+                        <td className="p-3 font-semibold">{staff.name}</td>
+                        <td className="p-3">
+                          <span className={cx("rounded-full border px-2 py-1 text-xs font-bold", staff.onDuty ? statusClass("Available") : statusClass("Served"))}>
+                            {staff.onDuty ? "On Duty" : "Off Duty"}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right font-black text-orange2">{formatHours(staff.todayHours)}</td>
+                        <td className="p-3 text-right font-black">{formatHours(staff.monthHours)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {todayCards.map((card) => (
                   <div key={card.id} className="rounded-lg border border-line bg-ink p-4">
@@ -2089,13 +2514,26 @@
         );
       }
 
-      function SettingsView({ state, setState }) {
+      function SettingsView({ state, setState, cloudConfig, setCloudConfig, syncStatus }) {
         const settings = { ...defaultSettings, ...(state.settings || {}) };
         const staffDirectory = state.staff?.length ? state.staff : defaultStaffDirectory;
         const emptyStaffForm = { id: "", name: "", role: "Server", pin: "" };
         const [settingsForm, setSettingsForm] = useState(settings);
         const [staffForm, setStaffForm] = useState(emptyStaffForm);
+        const [cloudForm, setCloudForm] = useState({ ...defaultCloudConfig, ...(cloudConfig || {}) });
         const editingStaff = Boolean(staffForm.id);
+        const syncTone =
+          syncStatus.kind === "online"
+            ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-200"
+            : syncStatus.kind === "error"
+            ? "border-rose-400/30 bg-rose-500/10 text-rose-200"
+            : syncStatus.kind === "syncing" || syncStatus.kind === "connecting"
+            ? "border-sky-400/30 bg-sky-500/10 text-sky-200"
+            : "border-line bg-ink text-zinc-300";
+
+        useEffect(() => {
+          setCloudForm({ ...defaultCloudConfig, ...(cloudConfig || {}) });
+        }, [cloudConfig]);
 
         function saveSettings() {
           setState((current) => ({
@@ -2124,6 +2562,24 @@
         function deleteStaff(id) {
           setState((current) => deleteStaffFromState(current, id));
           if (staffForm.id === id) setStaffForm(emptyStaffForm);
+        }
+
+        function saveCloudSettings() {
+          setCloudConfig({
+            enabled: Boolean(cloudForm.enabled),
+            restaurantId: cloudForm.restaurantId.trim() || defaultCloudConfig.restaurantId,
+            apiKey: cloudForm.apiKey.trim(),
+            authDomain: cloudForm.authDomain.trim(),
+            databaseURL: cloudForm.databaseURL.trim(),
+            projectId: cloudForm.projectId.trim(),
+            appId: cloudForm.appId.trim(),
+          });
+        }
+
+        function disableCloudSync() {
+          const next = { ...cloudForm, enabled: false };
+          setCloudForm(next);
+          setCloudConfig(next);
         }
 
         return (
@@ -2172,6 +2628,118 @@
                 >
                   Save Store Settings
                 </button>
+                <div className="rounded-lg border border-line bg-ink p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 className="font-black">Printer Setup</h4>
+                      <p className="mt-1 text-sm text-zinc-400">
+                        Use Print Receipt after payment, then choose your 58mm or 80mm receipt printer in Chrome/Safari.
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-200">
+                      Ready
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => alert("Printer ready. Complete a payment, open the receipt, then press Print Receipt.")}
+                    className="mt-4 min-h-12 w-full rounded-lg border border-line bg-panel font-bold text-zinc-300"
+                  >
+                    Test Printer Guide
+                  </button>
+                </div>
+                <div className="rounded-lg border border-line bg-ink p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 className="font-black">Cloud Sync</h4>
+                      <p className="mt-1 text-sm text-zinc-400">
+                        Firebase Realtime Database keeps orders, tables, Sales, menu, and staff clocks shared across devices.
+                      </p>
+                    </div>
+                    <span className={cx("rounded-full border px-3 py-1 text-xs font-bold", syncTone)}>
+                      {syncStatus.label}
+                    </span>
+                  </div>
+                  <label className="mt-4 flex min-h-12 items-center gap-3 rounded-lg border border-line bg-panel px-4">
+                    <input
+                      type="checkbox"
+                      checked={cloudForm.enabled}
+                      onChange={(event) => setCloudForm({ ...cloudForm, enabled: event.target.checked })}
+                    />
+                    <span className="font-semibold">Enable multi-device sync</span>
+                  </label>
+                  <div className="mt-4 grid grid-cols-1 gap-3">
+                    <div>
+                      <label className="text-sm font-semibold text-zinc-400">Restaurant Sync ID</label>
+                      <input
+                        value={cloudForm.restaurantId}
+                        onChange={(event) => setCloudForm({ ...cloudForm, restaurantId: event.target.value })}
+                        className="mt-2 min-h-12 w-full rounded-lg border border-line bg-panel px-4 text-white outline-none focus:border-orange"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-semibold text-zinc-400">Firebase API Key</label>
+                      <input
+                        value={cloudForm.apiKey}
+                        onChange={(event) => setCloudForm({ ...cloudForm, apiKey: event.target.value })}
+                        className="mt-2 min-h-12 w-full rounded-lg border border-line bg-panel px-4 text-white outline-none focus:border-orange"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-semibold text-zinc-400">Database URL</label>
+                      <input
+                        value={cloudForm.databaseURL}
+                        onChange={(event) => setCloudForm({ ...cloudForm, databaseURL: event.target.value })}
+                        placeholder="https://your-project.firebaseio.com"
+                        className="mt-2 min-h-12 w-full rounded-lg border border-line bg-panel px-4 text-white outline-none focus:border-orange"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                      <div>
+                        <label className="text-sm font-semibold text-zinc-400">Project ID</label>
+                        <input
+                          value={cloudForm.projectId}
+                          onChange={(event) => setCloudForm({ ...cloudForm, projectId: event.target.value })}
+                          className="mt-2 min-h-12 w-full rounded-lg border border-line bg-panel px-4 text-white outline-none focus:border-orange"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-semibold text-zinc-400">Auth Domain</label>
+                        <input
+                          value={cloudForm.authDomain}
+                          onChange={(event) => setCloudForm({ ...cloudForm, authDomain: event.target.value })}
+                          placeholder="your-project.firebaseapp.com"
+                          className="mt-2 min-h-12 w-full rounded-lg border border-line bg-panel px-4 text-white outline-none focus:border-orange"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-sm font-semibold text-zinc-400">App ID</label>
+                      <input
+                        value={cloudForm.appId}
+                        onChange={(event) => setCloudForm({ ...cloudForm, appId: event.target.value })}
+                        placeholder="Optional"
+                        className="mt-2 min-h-12 w-full rounded-lg border border-line bg-panel px-4 text-white outline-none focus:border-orange"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-4 rounded-lg border border-line bg-panel p-3 text-sm text-zinc-400">
+                    Status: {syncStatus.message}
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <button
+                      onClick={saveCloudSettings}
+                      className="min-h-12 rounded-lg bg-orange font-black text-black"
+                    >
+                      Save Cloud Sync
+                    </button>
+                    <button
+                      onClick={disableCloudSync}
+                      className="min-h-12 rounded-lg border border-line bg-panel font-black text-zinc-300"
+                    >
+                      Local Only
+                    </button>
+                  </div>
+                </div>
               </div>
             </section>
 
@@ -2264,25 +2832,36 @@
         );
       }
 
-      function ReceiptModal({ receipt, onClose }) {
+      function ReceiptModal({ receipt, settings, onClose }) {
+        useEffect(() => {
+          document.body.classList.add("receipt-printing");
+          return () => document.body.classList.remove("receipt-printing");
+        }, []);
+
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-5">
-            <div className="w-full max-w-md rounded-lg border border-line bg-panel p-5 shadow-soft">
+            <div id="receipt-print-area" className="w-full max-w-md rounded-lg border border-line bg-panel p-5 shadow-soft">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold uppercase tracking-[.18em] text-orange2">
                     Payment Successful
                   </div>
                   <h3 className="mt-2 text-3xl font-black">Receipt</h3>
+                  <div className="mt-1 text-sm text-zinc-400">{displayDateTime(receipt.paidAt)}</div>
                 </div>
                 <button
                   onClick={onClose}
-                  className="min-h-11 min-w-11 rounded-lg border border-line bg-ink font-black"
+                  className="screen-only min-h-11 min-w-11 rounded-lg border border-line bg-ink font-black"
                 >
                   X
                 </button>
               </div>
               <div className="mt-5 rounded-lg border border-line bg-ink p-4">
+                <div className="text-center">
+                  <div className="text-xl font-black">{settings?.businessName || defaultSettings.businessName}</div>
+                  <div className="mt-1 text-xs text-zinc-400">Receipt #{receipt.orderNumber}</div>
+                </div>
+                <div className="my-4 border-t border-line"></div>
                 <div className="flex justify-between text-sm">
                   <span className="text-zinc-400">Order</span>
                   <span className="font-bold">{receipt.orderNumber}</span>
@@ -2295,6 +2874,18 @@
                   <span className="text-zinc-400">Payment</span>
                   <span>{receipt.method}</span>
                 </div>
+                {receipt.reference && (
+                  <div className="mt-2 flex justify-between gap-3 text-sm">
+                    <span className="text-zinc-400">Reference</span>
+                    <span className="text-right">{receipt.reference}</span>
+                  </div>
+                )}
+                {receipt.collectedBy && (
+                  <div className="mt-2 flex justify-between text-sm">
+                    <span className="text-zinc-400">Cashier</span>
+                    <span>{receipt.collectedBy}</span>
+                  </div>
+                )}
                 {receipt.method === "Split Bill" && (
                   <div className="mt-2 flex justify-between text-sm">
                     <span className="text-zinc-400">Split</span>
@@ -2332,14 +2923,37 @@
                     <span>Total</span>
                     <span>{money(receipt.total)}</span>
                   </div>
+                  {receipt.method === "Cash" && (
+                    <>
+                      <div className="flex justify-between text-zinc-300">
+                        <span>Cash Received</span>
+                        <span>{money(receipt.tendered || receipt.total)}</span>
+                      </div>
+                      <div className="flex justify-between text-zinc-300">
+                        <span>Change</span>
+                        <span>{money(receipt.changeDue || 0)}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="mt-5 border-t border-dashed border-line pt-4 text-center text-xs text-zinc-500">
+                  Thank you. Please come again.
                 </div>
               </div>
-              <button
-                onClick={onClose}
-                className="mt-5 min-h-14 w-full rounded-lg bg-orange font-black text-black"
-              >
-                Close Receipt
-              </button>
+              <div className="screen-only mt-5 grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => window.print()}
+                  className="min-h-14 rounded-lg bg-orange font-black text-black"
+                >
+                  Print Receipt
+                </button>
+                <button
+                  onClick={onClose}
+                  className="min-h-14 rounded-lg border border-line bg-ink font-black"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         );
@@ -2347,6 +2961,18 @@
 
       function App() {
         const [state, setState] = useState(loadState);
+        const [cloudConfig, setCloudConfig] = useState(loadCloudConfig);
+        const [syncStatus, setSyncStatus] = useState({
+          kind: "local",
+          label: "Local",
+          message: "This device only",
+        });
+        const deviceIdRef = useRef(getDeviceId());
+        const stateRef = useRef(state);
+        const remoteRef = useRef(null);
+        const remoteReadyRef = useRef(false);
+        const applyingRemoteRef = useRef(false);
+        const lastRemoteRevisionRef = useRef(0);
         const [user, setUser] = useState(() => {
           try {
             return JSON.parse(localStorage.getItem(SESSION_KEY));
@@ -2356,15 +2982,155 @@
         });
 
         useEffect(() => {
+          stateRef.current = state;
           localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
           document.title = `${state.settings?.businessName || defaultSettings.businessName} | ${state.settings?.tagline || defaultSettings.tagline}`;
+
+          if (!remoteRef.current || !remoteReadyRef.current || !hasCloudConfig(cloudConfig)) return;
+          if (applyingRemoteRef.current) {
+            applyingRemoteRef.current = false;
+            return;
+          }
+
+          const revision = Date.now();
+          lastRemoteRevisionRef.current = revision;
+          setSyncStatus({ kind: "syncing", label: "Syncing", message: "Saving to cloud" });
+          remoteRef.current
+            .set({
+              state,
+              revision,
+              deviceId: deviceIdRef.current,
+              updatedAt: new Date().toISOString(),
+            })
+            .then(() => {
+              setSyncStatus({ kind: "online", label: "Cloud", message: `Synced ${displayTime()}` });
+            })
+            .catch((error) => {
+              setSyncStatus({ kind: "error", label: "Error", message: error.message || "Cloud save failed" });
+            });
         }, [state]);
+
+        useEffect(() => {
+          localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify(cloudConfig));
+        }, [cloudConfig]);
+
+        useEffect(() => {
+          remoteRef.current = null;
+          remoteReadyRef.current = false;
+          applyingRemoteRef.current = false;
+          lastRemoteRevisionRef.current = 0;
+
+          if (!cloudConfig.enabled) {
+            setSyncStatus({ kind: "local", label: "Local", message: "This device only" });
+            return;
+          }
+
+          if (!hasCloudConfig(cloudConfig)) {
+            setSyncStatus({ kind: "setup", label: "Setup", message: "Cloud fields needed" });
+            return;
+          }
+
+          if (!window.firebase?.database) {
+            setSyncStatus({ kind: "error", label: "Error", message: "Firebase is not loaded" });
+            return;
+          }
+
+          let cancelled = false;
+          let ref = null;
+
+          async function connectCloud() {
+            try {
+              setSyncStatus({ kind: "connecting", label: "Cloud", message: "Connecting" });
+              const appName = `pos-${sanitizeCloudPath(cloudConfig.restaurantId)}`;
+              const app =
+                firebase.apps.find((item) => item.name === appName) ||
+                firebase.initializeApp(firebaseOptions(cloudConfig), appName);
+              ref = firebase.database(app).ref(cloudStatePath(cloudConfig));
+              remoteRef.current = ref;
+
+              const snapshot = await ref.once("value");
+              if (cancelled) return;
+              const payload = snapshot.val();
+
+              if (payload?.state) {
+                lastRemoteRevisionRef.current = Number(payload.revision || 0);
+                applyingRemoteRef.current = true;
+                setState(hydrateState(payload.state));
+                setSyncStatus({
+                  kind: "online",
+                  label: "Cloud",
+                  message: `Loaded ${displayTime(payload.updatedAt || new Date())}`,
+                });
+              } else {
+                const revision = Date.now();
+                lastRemoteRevisionRef.current = revision;
+                await ref.set({
+                  state: stateRef.current,
+                  revision,
+                  deviceId: deviceIdRef.current,
+                  updatedAt: new Date().toISOString(),
+                });
+                setSyncStatus({ kind: "online", label: "Cloud", message: "Cloud ready" });
+              }
+
+              remoteReadyRef.current = true;
+              ref.on(
+                "value",
+                (nextSnapshot) => {
+                  if (cancelled) return;
+                  const nextPayload = nextSnapshot.val();
+                  if (!nextPayload?.state) return;
+                  const revision = Number(nextPayload.revision || 0);
+                  if (nextPayload.deviceId === deviceIdRef.current || revision <= lastRemoteRevisionRef.current) return;
+                  lastRemoteRevisionRef.current = revision;
+                  applyingRemoteRef.current = true;
+                  setState(hydrateState(nextPayload.state));
+                  setSyncStatus({
+                    kind: "online",
+                    label: "Cloud",
+                    message: `Updated ${displayTime(nextPayload.updatedAt || new Date())}`,
+                  });
+                },
+                (error) => {
+                  setSyncStatus({ kind: "error", label: "Error", message: error.message || "Cloud read failed" });
+                }
+              );
+            } catch (error) {
+              setSyncStatus({ kind: "error", label: "Error", message: error.message || "Cloud connection failed" });
+            }
+          }
+
+          connectCloud();
+
+          return () => {
+            cancelled = true;
+            if (ref) ref.off();
+          };
+        }, [
+          cloudConfig.enabled,
+          cloudConfig.apiKey,
+          cloudConfig.authDomain,
+          cloudConfig.databaseURL,
+          cloudConfig.projectId,
+          cloudConfig.appId,
+          cloudConfig.restaurantId,
+        ]);
 
         if (!user) {
           return <LoginScreen state={state} setState={setState} onLogin={setUser} />;
         }
 
-        return <AppShell user={user} setUser={setUser} state={state} setState={setState} />;
+        return (
+          <AppShell
+            user={user}
+            setUser={setUser}
+            state={state}
+            setState={setState}
+            cloudConfig={cloudConfig}
+            setCloudConfig={setCloudConfig}
+            syncStatus={syncStatus}
+          />
+        );
       }
 
       ReactDOM.createRoot(document.getElementById("root")).render(<App />);
