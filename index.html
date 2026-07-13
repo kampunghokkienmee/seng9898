@@ -122,6 +122,18 @@
       const PAYMENT_METHODS = ["Cash", "Card", "PayNow / QR Pay", "Split Bill"];
       const KDS_STATUSES = ["New", "Preparing", "Ready", "Served"];
       const TABLE_STATUSES = ["Available", "Occupied", "Reserved", "Cleaning"];
+      const SUPPLIER_CATEGORIES = [
+        "Food Ingredients",
+        "Packaging",
+        "Beverage Stock",
+        "Utilities",
+        "Rent",
+        "Salary",
+        "Repair",
+        "Other",
+      ];
+      const SUPPLIER_PAYMENT_METHODS = ["Cash", "Card", "Bank Transfer", "PayNow / QR Pay", "Credit"];
+      const SUPPLIER_STATUSES = ["Paid", "Unpaid"];
 
       const image = (id) =>
         `https://images.unsplash.com/${id}?auto=format&fit=crop&w=700&q=80`;
@@ -148,6 +160,12 @@
         { id: "s2", name: "Ben Lim", role: "Server", pin: "2222" },
         { id: "s3", name: "Chloe Ng", role: "Barista", pin: "3333" },
         { id: "s4", name: "Daniel Koh", role: "Kitchen", pin: "4444" },
+      ];
+
+      const defaultSuppliers = [
+        { id: "sup1", name: "Fresh Noodle Supplier", contact: "", category: "Food Ingredients" },
+        { id: "sup2", name: "Seafood & Prawn Stock", contact: "", category: "Food Ingredients" },
+        { id: "sup3", name: "Packaging Supplier", contact: "", category: "Packaging" },
       ];
 
       const defaultMenu = [
@@ -195,6 +213,7 @@
         { id: "kds", label: "KDS", icon: "K", managerOnly: false },
         { id: "cashier", label: "Cashier", icon: "$", managerOnly: false },
         { id: "reports", label: "Sales", icon: "S", managerOnly: true },
+        { id: "supplier", label: "Supplier", icon: "B", managerOnly: true },
         { id: "staff", label: "Staff", icon: "P", managerOnly: true },
         { id: "menu", label: "Menu", icon: "M", managerOnly: true },
         { id: "settings", label: "Setup", icon: "G", managerOnly: true },
@@ -275,6 +294,50 @@
         );
       }
 
+      let bellAudioContext = null;
+
+      function playOrderBell() {
+        try {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContext) return;
+          if (!bellAudioContext) bellAudioContext = new AudioContext();
+          if (bellAudioContext.state === "suspended") bellAudioContext.resume();
+
+          [0, 140, 300].forEach((delay, index) => {
+            setTimeout(() => {
+              const oscillator = bellAudioContext.createOscillator();
+              const gain = bellAudioContext.createGain();
+              oscillator.type = "sine";
+              oscillator.frequency.setValueAtTime(index === 1 ? 980 : 760, bellAudioContext.currentTime);
+              gain.gain.setValueAtTime(0.0001, bellAudioContext.currentTime);
+              gain.gain.exponentialRampToValueAtTime(0.2, bellAudioContext.currentTime + 0.02);
+              gain.gain.exponentialRampToValueAtTime(0.0001, bellAudioContext.currentTime + 0.16);
+              oscillator.connect(gain);
+              gain.connect(bellAudioContext.destination);
+              oscillator.start();
+              oscillator.stop(bellAudioContext.currentTime + 0.18);
+            }, delay);
+          });
+        } catch (error) {
+          // Audio can be blocked until the user taps Enable Bell.
+        }
+      }
+
+      function summarizeSupplierRecords(records) {
+        return records.reduce(
+          (acc, record) => {
+            const amount = Number(record.amount || 0);
+            acc.total += amount;
+            if (record.status === "Unpaid") acc.unpaid += amount;
+            else acc.paid += amount;
+            if (!acc.byCategory[record.category]) acc.byCategory[record.category] = 0;
+            acc.byCategory[record.category] += amount;
+            return acc;
+          },
+          { total: 0, paid: 0, unpaid: 0, byCategory: {} }
+        );
+      }
+
       function seedTables() {
         return Array.from({ length: 20 }, (_, index) => ({
           id: index + 1,
@@ -327,6 +390,8 @@
           orders: [],
           kitchenTickets: [],
           payments: [],
+          suppliers: defaultSuppliers.map((supplier) => ({ ...supplier })),
+          supplierRecords: [],
           timecards: [],
         };
       }
@@ -349,6 +414,8 @@
           orders: saved.orders || [],
           kitchenTickets: saved.kitchenTickets || [],
           payments: saved.payments || [],
+          suppliers: saved.suppliers?.length ? saved.suppliers : defaultSuppliers.map((supplier) => ({ ...supplier })),
+          supplierRecords: saved.supplierRecords || [],
           timecards: saved.timecards || [],
         };
       }
@@ -857,6 +924,7 @@
             ),
             kitchenTickets: [ticket, ...current.kitchenTickets],
           }));
+          playOrderBell();
           setView("kds");
         }
 
@@ -1100,7 +1168,12 @@
                     onTables={() => setView("tables")}
                   />
                 )}
-                {view === "reports" && <ReportsView payments={state.payments} />}
+                {view === "reports" && (
+                  <ReportsView payments={state.payments} supplierRecords={state.supplierRecords || []} />
+                )}
+                {view === "supplier" && (
+                  <SupplierView state={state} setState={setState} />
+                )}
                 {view === "staff" && (
                   <StaffView state={state} setState={setState} staffDirectory={staffDirectory} />
                 )}
@@ -1497,11 +1570,44 @@
       }
 
       function KdsView({ tickets, onStatus }) {
+        const [bellEnabled, setBellEnabled] = useState(false);
+        const knownTicketsRef = useRef(new Set(tickets.map((ticket) => ticket.id)));
         const activeTickets = tickets.filter((ticket) => ticket.status !== "Served");
         const servedTickets = tickets.filter((ticket) => ticket.status === "Served").slice(0, 8);
 
+        useEffect(() => {
+          const known = knownTicketsRef.current;
+          const incoming = tickets.filter((ticket) => ticket.status === "New" && !known.has(ticket.id));
+          if (bellEnabled && incoming.length > 0) playOrderBell();
+          knownTicketsRef.current = new Set(tickets.map((ticket) => ticket.id));
+        }, [tickets, bellEnabled]);
+
+        function enableBell() {
+          setBellEnabled(true);
+          playOrderBell();
+        }
+
         return (
           <div className="h-full overflow-auto p-5">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-2xl font-black">Kitchen Orders</h3>
+                <div className="mt-1 text-sm text-zinc-400">
+                  New tickets: {tickets.filter((ticket) => ticket.status === "New").length} / Active: {activeTickets.length}
+                </div>
+              </div>
+              <button
+                onClick={enableBell}
+                className={cx(
+                  "min-h-12 rounded-lg border px-4 text-sm font-black",
+                  bellEnabled
+                    ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-200"
+                    : "border-orange bg-orange text-black"
+                )}
+              >
+                {bellEnabled ? "Bell Enabled" : "Enable Bell"}
+              </button>
+            </div>
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
               {KDS_STATUSES.map((status) => {
                 const list = tickets.filter((ticket) => ticket.status === status);
@@ -1797,7 +1903,7 @@
         );
       }
 
-      function ReportsView({ payments }) {
+      function ReportsView({ payments, supplierRecords }) {
         const [range, setRange] = useState("today");
         const [selectedDate, setSelectedDate] = useState(todayKey());
         const [selectedMonth, setSelectedMonth] = useState(monthKey());
@@ -1807,13 +1913,25 @@
           if (range === "month") return (payment.date || "").startsWith(selectedMonth);
           return true;
         });
+        const filteredSupplierRecords = (supplierRecords || []).filter((record) => {
+          if (range === "today") return record.date === selectedDate;
+          if (range === "month") return (record.date || "").startsWith(selectedMonth);
+          return true;
+        });
         const todayPayments = payments.filter((payment) => payment.date === todayKey());
         const monthPayments = payments.filter((payment) => (payment.date || "").startsWith(monthKey()));
         const report = summarizePayments(filteredPayments);
         const todayReport = summarizePayments(todayPayments);
         const monthReport = summarizePayments(monthPayments);
+        const supplierReport = summarizeSupplierRecords(filteredSupplierRecords);
         const average = report.orders ? report.total / report.orders : 0;
         const netFoodSales = Math.max(0, report.subtotal - report.discount);
+        const directCostCategories = new Set(["Food Ingredients", "Packaging", "Beverage Stock"]);
+        const directCosts = filteredSupplierRecords
+          .filter((record) => directCostCategories.has(record.category))
+          .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+        const grossProfit = netFoodSales - directCosts;
+        const netProfit = report.total - supplierReport.total;
 
         const methodStats = PAYMENT_METHODS.reduce((acc, method) => {
           const methodPayments = filteredPayments.filter((payment) => payment.method === method);
@@ -1839,9 +1957,14 @@
         const dailyMap = {};
         filteredPayments.forEach((payment) => {
           const key = payment.date || todayKey(payment.paidAt);
-          if (!dailyMap[key]) dailyMap[key] = { date: key, total: 0, orders: 0 };
+          if (!dailyMap[key]) dailyMap[key] = { date: key, total: 0, cost: 0, orders: 0 };
           dailyMap[key].total += Number(payment.total || 0);
           dailyMap[key].orders += 1;
+        });
+        filteredSupplierRecords.forEach((record) => {
+          const key = record.date || todayKey(record.createdAt);
+          if (!dailyMap[key]) dailyMap[key] = { date: key, total: 0, cost: 0, orders: 0 };
+          dailyMap[key].cost += Number(record.amount || 0);
         });
         const dailyRows = Object.values(dailyMap)
           .sort((a, b) => a.date.localeCompare(b.date))
@@ -1849,7 +1972,7 @@
 
         const maxMethod = Math.max(1, ...Object.values(methodStats).map((item) => item.total));
         const maxHot = Math.max(1, ...hotItems.map((item) => item.qty));
-        const maxDaily = Math.max(1, ...dailyRows.map((item) => item.total));
+        const maxDaily = Math.max(1, ...dailyRows.map((item) => Math.max(item.total, item.cost)));
 
         return (
           <div className="h-full overflow-auto p-5">
@@ -1898,17 +2021,30 @@
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
               {[
                 ["Today Sales", money(todayReport.total), `${todayReport.orders} orders today`],
                 ["Month Sales", money(monthReport.total), `${monthReport.orders} orders this month`],
-                ["Selected Income", money(report.total), "Current report total"],
-                ["Orders", report.orders, "Completed payments"],
+                ["Sales Collected", money(report.total), `${report.orders} paid orders`],
+                ["Supplier Cost", money(supplierReport.total), `${filteredSupplierRecords.length} records`],
+                [
+                  netProfit >= 0 ? "Profit" : "Loss",
+                  money(Math.abs(netProfit)),
+                  "Sales minus supplier cost",
+                  netProfit >= 0 ? "profit" : "loss",
+                ],
                 ["Average Order", money(average), "Revenue per order"],
-              ].map(([title, value, copy]) => (
+              ].map(([title, value, copy, tone]) => (
                 <div key={title} className="rounded-lg border border-line bg-panel p-5">
                   <div className="text-sm font-semibold uppercase tracking-[.18em] text-zinc-500">{title}</div>
-                  <div className="mt-3 text-3xl font-black text-orange2">{value}</div>
+                  <div
+                    className={cx(
+                      "mt-3 text-3xl font-black",
+                      tone === "loss" ? "text-rose-300" : tone === "profit" ? "text-emerald-300" : "text-orange2"
+                    )}
+                  >
+                    {value}
+                  </div>
                   <div className="mt-2 text-sm text-zinc-400">{copy}</div>
                 </div>
               ))}
@@ -1925,31 +2061,63 @@
                     ["Service Charge", report.service],
                     ["GST", report.gst],
                     ["Total Collected", report.total],
-                  ].map(([label, value]) => (
-                    <div key={label} className="flex items-center justify-between rounded-lg border border-line bg-ink p-3">
-                      <span className="text-sm text-zinc-400">{label}</span>
-                      <span className={cx("text-lg font-black", label === "Total Collected" ? "text-orange2" : "text-white")}>
-                        {money(value)}
-                      </span>
-                    </div>
-                  ))}
+                    ["Supplier Expenses", -supplierReport.total],
+                    ["Paid Supplier Cost", -supplierReport.paid],
+                    ["Unpaid Supplier Bills", -supplierReport.unpaid],
+                    ["Direct Food Cost", -directCosts],
+                    ["Gross Profit", grossProfit],
+                    [netProfit >= 0 ? "Net Profit" : "Net Loss", netProfit],
+                  ].map(([label, value]) => {
+                    const isProfitLine = label.includes("Profit") || label.includes("Loss");
+                    const isNegative = Number(value) < 0 || label.includes("Loss");
+                    return (
+                      <div key={label} className="flex items-center justify-between rounded-lg border border-line bg-ink p-3">
+                        <span className="text-sm text-zinc-400">{label}</span>
+                        <span
+                          className={cx(
+                            "text-lg font-black",
+                            isProfitLine && isNegative
+                              ? "text-rose-300"
+                              : isProfitLine
+                              ? "text-emerald-300"
+                              : label === "Total Collected"
+                              ? "text-orange2"
+                              : isNegative
+                              ? "text-rose-200"
+                              : "text-white"
+                          )}
+                        >
+                          {money(value)}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
 
               <section className="rounded-lg border border-line bg-panel p-5">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xl font-black">Daily Income Chart</h3>
-                  <span className="text-sm text-zinc-500">Last 14 active days</span>
+                  <h3 className="text-xl font-black">Daily Profit Chart</h3>
+                  <span className="text-sm text-zinc-500">Orange income / red supplier cost</span>
                 </div>
                 <div className="mt-5 flex h-56 items-end gap-3 overflow-x-auto rounded-lg border border-line bg-ink p-4">
                   {dailyRows.map((day) => (
                     <div key={day.date} className="flex min-w-16 flex-1 flex-col items-center justify-end gap-2">
-                      <div className="text-xs font-bold text-orange2">{money(day.total)}</div>
-                      <div
-                        className="w-full rounded-t-md bg-orange"
-                        style={{ height: `${Math.max(12, (day.total / maxDaily) * 150)}px` }}
-                        title={`${day.date} / ${money(day.total)}`}
-                      ></div>
+                      <div className={cx("text-xs font-bold", day.total - day.cost >= 0 ? "text-emerald-300" : "text-rose-300")}>
+                        {money(day.total - day.cost)}
+                      </div>
+                      <div className="flex w-full items-end justify-center gap-1">
+                        <div
+                          className="w-1/2 rounded-t-md bg-orange"
+                          style={{ height: `${Math.max(8, (day.total / maxDaily) * 150)}px` }}
+                          title={`${day.date} income ${money(day.total)}`}
+                        ></div>
+                        <div
+                          className="w-1/2 rounded-t-md bg-rose-400"
+                          style={{ height: `${Math.max(4, (day.cost / maxDaily) * 150)}px` }}
+                          title={`${day.date} cost ${money(day.cost)}`}
+                        ></div>
+                      </div>
                       <div className="text-center text-[11px] text-zinc-500">{day.date.slice(5)}</div>
                     </div>
                   ))}
@@ -2053,6 +2221,522 @@
                     )}
                   </tbody>
                 </table>
+              </div>
+            </section>
+          </div>
+        );
+      }
+
+      function SupplierView({ state, setState }) {
+        const suppliers = state.suppliers?.length ? state.suppliers : defaultSuppliers;
+        const records = state.supplierRecords || [];
+        const emptySupplierForm = { id: "", name: "", contact: "", category: SUPPLIER_CATEGORIES[0] };
+        const emptyRecordForm = {
+          id: "",
+          supplierId: suppliers[0]?.id || "",
+          category: SUPPLIER_CATEGORIES[0],
+          date: todayKey(),
+          amount: "",
+          invoice: "",
+          method: "Cash",
+          status: "Paid",
+          note: "",
+        };
+        const [supplierForm, setSupplierForm] = useState(emptySupplierForm);
+        const [recordForm, setRecordForm] = useState(emptyRecordForm);
+        const [range, setRange] = useState("month");
+        const [selectedDate, setSelectedDate] = useState(todayKey());
+        const [selectedMonth, setSelectedMonth] = useState(monthKey());
+        const editingSupplier = Boolean(supplierForm.id);
+        const editingRecord = Boolean(recordForm.id);
+
+        useEffect(() => {
+          if (!suppliers.find((supplier) => supplier.id === recordForm.supplierId)) {
+            setRecordForm((current) => ({
+              ...current,
+              supplierId: suppliers[0]?.id || "",
+              category: suppliers[0]?.category || SUPPLIER_CATEGORIES[0],
+            }));
+          }
+        }, [suppliers, recordForm.supplierId]);
+
+        const filteredRecords = records.filter((record) => {
+          if (range === "today") return record.date === selectedDate;
+          if (range === "month") return (record.date || "").startsWith(selectedMonth);
+          return true;
+        });
+        const supplierSummary = summarizeSupplierRecords(filteredRecords);
+        const categoryRows = Object.entries(supplierSummary.byCategory)
+          .map(([category, total]) => ({ category, total }))
+          .sort((a, b) => b.total - a.total);
+        const maxCategory = Math.max(1, ...categoryRows.map((row) => row.total));
+        const recentRecords = [...filteredRecords].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+
+        function supplierName(id) {
+          return suppliers.find((supplier) => supplier.id === id)?.name || "Unknown Supplier";
+        }
+
+        function saveSupplier() {
+          if (!supplierForm.name.trim()) return;
+          const supplier = {
+            id: supplierForm.id || uid("supplier"),
+            name: supplierForm.name.trim(),
+            contact: supplierForm.contact.trim(),
+            category: supplierForm.category || SUPPLIER_CATEGORIES[0],
+          };
+          setState((current) => ({
+            ...current,
+            suppliers: editingSupplier
+              ? (current.suppliers || suppliers).map((item) => (item.id === supplier.id ? supplier : item))
+              : [supplier, ...(current.suppliers || suppliers)],
+            supplierRecords: (current.supplierRecords || []).map((record) =>
+              record.supplierId === supplier.id ? { ...record, supplierName: supplier.name } : record
+            ),
+          }));
+          setSupplierForm(emptySupplierForm);
+          if (!recordForm.supplierId) {
+            setRecordForm((current) => ({ ...current, supplierId: supplier.id, category: supplier.category }));
+          }
+        }
+
+        function deleteSupplier(id) {
+          const nextSuppliers = suppliers.filter((supplier) => supplier.id !== id);
+          if (nextSuppliers.length === 0) return;
+          setState((current) => ({
+            ...current,
+            suppliers: (current.suppliers || suppliers).filter((supplier) => supplier.id !== id),
+          }));
+          if (supplierForm.id === id) setSupplierForm(emptySupplierForm);
+          if (recordForm.supplierId === id) {
+            setRecordForm((current) => ({
+              ...current,
+              supplierId: nextSuppliers[0].id,
+              category: nextSuppliers[0].category,
+            }));
+          }
+        }
+
+        function saveRecord() {
+          const supplier = suppliers.find((item) => item.id === recordForm.supplierId) || suppliers[0];
+          if (!supplier || !Number(recordForm.amount)) return;
+          const record = {
+            id: recordForm.id || uid("cost"),
+            supplierId: supplier.id,
+            supplierName: supplier.name,
+            category: recordForm.category || supplier.category || SUPPLIER_CATEGORIES[0],
+            date: recordForm.date || todayKey(),
+            amount: roundCurrency(recordForm.amount),
+            invoice: recordForm.invoice.trim(),
+            method: recordForm.method,
+            status: recordForm.status,
+            note: recordForm.note.trim(),
+            createdAt: recordForm.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          setState((current) => ({
+            ...current,
+            supplierRecords: editingRecord
+              ? (current.supplierRecords || []).map((item) => (item.id === record.id ? record : item))
+              : [record, ...(current.supplierRecords || [])],
+          }));
+          setRecordForm({
+            ...emptyRecordForm,
+            supplierId: supplier.id,
+            category: record.category,
+            date: record.date,
+          });
+        }
+
+        function deleteRecord(id) {
+          setState((current) => ({
+            ...current,
+            supplierRecords: (current.supplierRecords || []).filter((record) => record.id !== id),
+          }));
+          if (recordForm.id === id) setRecordForm(emptyRecordForm);
+        }
+
+        function markPaid(id) {
+          setState((current) => ({
+            ...current,
+            supplierRecords: (current.supplierRecords || []).map((record) =>
+              record.id === id ? { ...record, status: "Paid", updatedAt: new Date().toISOString() } : record
+            ),
+          }));
+        }
+
+        return (
+          <div className="grid h-full grid-cols-1 gap-5 overflow-auto p-5 xl:grid-cols-[420px_1fr]">
+            <section className="space-y-5">
+              <div className="rounded-lg border border-line bg-panel p-5">
+                <h3 className="text-xl font-black">{editingRecord ? "Edit Supplier Bill" : "Add Supplier Cost"}</h3>
+                <div className="mt-5 space-y-4">
+                  <div>
+                    <label className="text-sm font-semibold text-zinc-400">Supplier</label>
+                    <select
+                      value={recordForm.supplierId}
+                      onChange={(event) => {
+                        const supplier = suppliers.find((item) => item.id === event.target.value);
+                        setRecordForm({
+                          ...recordForm,
+                          supplierId: event.target.value,
+                          category: supplier?.category || recordForm.category,
+                        });
+                      }}
+                      className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                    >
+                      {suppliers.map((supplier) => (
+                        <option key={supplier.id} value={supplier.id}>
+                          {supplier.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-sm font-semibold text-zinc-400">Date</label>
+                      <input
+                        type="date"
+                        value={recordForm.date}
+                        onChange={(event) => setRecordForm({ ...recordForm, date: event.target.value })}
+                        className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-semibold text-zinc-400">Amount</label>
+                      <input
+                        value={recordForm.amount}
+                        onChange={(event) => setRecordForm({ ...recordForm, amount: event.target.value })}
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-sm font-semibold text-zinc-400">Category</label>
+                      <select
+                        value={recordForm.category}
+                        onChange={(event) => setRecordForm({ ...recordForm, category: event.target.value })}
+                        className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                      >
+                        {SUPPLIER_CATEGORIES.map((category) => (
+                          <option key={category} value={category}>
+                            {category}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-sm font-semibold text-zinc-400">Status</label>
+                      <select
+                        value={recordForm.status}
+                        onChange={(event) => setRecordForm({ ...recordForm, status: event.target.value })}
+                        className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                      >
+                        {SUPPLIER_STATUSES.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-sm font-semibold text-zinc-400">Payment</label>
+                      <select
+                        value={recordForm.method}
+                        onChange={(event) => setRecordForm({ ...recordForm, method: event.target.value })}
+                        className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                      >
+                        {SUPPLIER_PAYMENT_METHODS.map((method) => (
+                          <option key={method} value={method}>
+                            {method}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-sm font-semibold text-zinc-400">Invoice</label>
+                      <input
+                        value={recordForm.invoice}
+                        onChange={(event) => setRecordForm({ ...recordForm, invoice: event.target.value })}
+                        placeholder="Invoice no."
+                        className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-zinc-400">Note</label>
+                    <input
+                      value={recordForm.note}
+                      onChange={(event) => setRecordForm({ ...recordForm, note: event.target.value })}
+                      placeholder="Noodles, prawns, rent, utilities..."
+                      className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button onClick={saveRecord} className="min-h-14 rounded-lg bg-orange font-black text-black">
+                      {editingRecord ? "Save Cost" : "Add Cost"}
+                    </button>
+                    <button
+                      onClick={() => setRecordForm(emptyRecordForm)}
+                      className="min-h-14 rounded-lg border border-line bg-ink font-black"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-line bg-panel p-5">
+                <h3 className="text-xl font-black">{editingSupplier ? "Edit Supplier" : "Supplier Directory"}</h3>
+                <div className="mt-4 space-y-3">
+                  <input
+                    value={supplierForm.name}
+                    onChange={(event) => setSupplierForm({ ...supplierForm, name: event.target.value })}
+                    placeholder="Supplier name"
+                    className="min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                  />
+                  <input
+                    value={supplierForm.contact}
+                    onChange={(event) => setSupplierForm({ ...supplierForm, contact: event.target.value })}
+                    placeholder="Contact / phone"
+                    className="min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                  />
+                  <select
+                    value={supplierForm.category}
+                    onChange={(event) => setSupplierForm({ ...supplierForm, category: event.target.value })}
+                    className="min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                  >
+                    {SUPPLIER_CATEGORIES.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button onClick={saveSupplier} className="min-h-12 rounded-lg bg-orange font-black text-black">
+                      {editingSupplier ? "Save Supplier" : "Add Supplier"}
+                    </button>
+                    <button
+                      onClick={() => setSupplierForm(emptySupplierForm)}
+                      className="min-h-12 rounded-lg border border-line bg-ink font-black"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-5 space-y-3">
+                  {suppliers.map((supplier) => (
+                    <div key={supplier.id} className="rounded-lg border border-line bg-ink p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-black">{supplier.name}</div>
+                          <div className="mt-1 text-sm text-zinc-400">
+                            {supplier.category} {supplier.contact ? `/ ${supplier.contact}` : ""}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => setSupplierForm({ ...supplier })}
+                          className="min-h-10 rounded-md border border-line bg-panel text-xs font-bold"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => deleteSupplier(supplier.id)}
+                          className="min-h-10 rounded-md border border-rose-400/30 bg-rose-500/10 text-xs font-bold text-rose-200"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section className="space-y-5">
+              <div className="rounded-lg border border-line bg-panel p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-xl font-black">Supplier Cost Report</h3>
+                    <div className="mt-1 text-sm text-zinc-400">Costs are deducted in Sales profit report.</div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      ["today", "Today"],
+                      ["month", "This Month"],
+                      ["all", "All"],
+                    ].map(([key, label]) => (
+                      <button
+                        key={key}
+                        onClick={() => setRange(key)}
+                        className={cx(
+                          "min-h-10 rounded-lg border px-3 text-xs font-black",
+                          range === key ? "border-orange bg-orange text-black" : "border-line bg-ink text-zinc-300"
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {range === "today" && (
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(event) => setSelectedDate(event.target.value)}
+                      className="min-h-11 rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                    />
+                  )}
+                  {range === "month" && (
+                    <input
+                      type="month"
+                      value={selectedMonth}
+                      onChange={(event) => setSelectedMonth(event.target.value)}
+                      className="min-h-11 rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                    />
+                  )}
+                </div>
+                <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div className="rounded-lg border border-line bg-ink p-4">
+                    <div className="text-sm text-zinc-400">Total Cost</div>
+                    <div className="mt-2 text-3xl font-black text-rose-300">{money(supplierSummary.total)}</div>
+                  </div>
+                  <div className="rounded-lg border border-line bg-ink p-4">
+                    <div className="text-sm text-zinc-400">Paid</div>
+                    <div className="mt-2 text-3xl font-black text-emerald-300">{money(supplierSummary.paid)}</div>
+                  </div>
+                  <div className="rounded-lg border border-line bg-ink p-4">
+                    <div className="text-sm text-zinc-400">Unpaid</div>
+                    <div className="mt-2 text-3xl font-black text-orange2">{money(supplierSummary.unpaid)}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                <div className="rounded-lg border border-line bg-panel p-5">
+                  <h3 className="text-xl font-black">Cost by Category</h3>
+                  <div className="mt-5 space-y-4">
+                    {categoryRows.map((row) => (
+                      <div key={row.category}>
+                        <div className="mb-2 flex justify-between text-sm">
+                          <span className="font-semibold">{row.category}</span>
+                          <span className="text-zinc-400">{money(row.total)}</span>
+                        </div>
+                        <div className="h-4 overflow-hidden rounded-full bg-ink">
+                          <div
+                            className="h-full rounded-full bg-rose-400"
+                            style={{ width: `${Math.max(8, (row.total / maxCategory) * 100)}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    ))}
+                    {categoryRows.length === 0 && (
+                      <div className="rounded-lg border border-dashed border-line p-8 text-center text-zinc-500">
+                        No supplier cost yet.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-line bg-panel p-5">
+                  <h3 className="text-xl font-black">Suppliers</h3>
+                  <div className="mt-5 space-y-3">
+                    {suppliers.map((supplier) => {
+                      const total = records
+                        .filter((record) => record.supplierId === supplier.id)
+                        .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+                      return (
+                        <div key={supplier.id} className="flex items-center justify-between rounded-lg border border-line bg-ink p-3">
+                          <div>
+                            <div className="font-black">{supplier.name}</div>
+                            <div className="mt-1 text-sm text-zinc-500">{supplier.category}</div>
+                          </div>
+                          <div className="text-right font-black text-orange2">{money(total)}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-line bg-panel p-5">
+                <h3 className="text-xl font-black">Supplier Records</h3>
+                <div className="mt-4 overflow-auto rounded-lg border border-line">
+                  <table className="w-full min-w-[980px] text-left text-sm">
+                    <thead className="bg-ink text-zinc-400">
+                      <tr>
+                        <th className="p-3">Date</th>
+                        <th className="p-3">Supplier</th>
+                        <th className="p-3">Category</th>
+                        <th className="p-3">Invoice</th>
+                        <th className="p-3">Payment</th>
+                        <th className="p-3">Status</th>
+                        <th className="p-3 text-right">Amount</th>
+                        <th className="p-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentRecords.map((record) => (
+                        <tr key={record.id} className="border-t border-line">
+                          <td className="p-3 text-zinc-400">{displayDate(record.date)}</td>
+                          <td className="p-3 font-semibold">{record.supplierName || supplierName(record.supplierId)}</td>
+                          <td className="p-3">{record.category}</td>
+                          <td className="p-3 text-zinc-400">{record.invoice || "-"}</td>
+                          <td className="p-3">{record.method}</td>
+                          <td className="p-3">
+                            <span
+                              className={cx(
+                                "rounded-full border px-2 py-1 text-xs font-bold",
+                                record.status === "Paid" ? statusClass("Available") : statusClass("Held")
+                              )}
+                            >
+                              {record.status}
+                            </span>
+                          </td>
+                          <td className="p-3 text-right font-black text-rose-300">{money(record.amount)}</td>
+                          <td className="p-3">
+                            <div className="flex justify-end gap-2">
+                              <button
+                                onClick={() => setRecordForm({ ...record, amount: String(record.amount) })}
+                                className="min-h-9 rounded-md border border-line bg-ink px-3 text-xs font-bold"
+                              >
+                                Edit
+                              </button>
+                              {record.status === "Unpaid" && (
+                                <button
+                                  onClick={() => markPaid(record.id)}
+                                  className="min-h-9 rounded-md border border-emerald-400/30 bg-emerald-500/10 px-3 text-xs font-bold text-emerald-200"
+                                >
+                                  Paid
+                                </button>
+                              )}
+                              <button
+                                onClick={() => deleteRecord(record.id)}
+                                className="min-h-9 rounded-md border border-rose-400/30 bg-rose-500/10 px-3 text-xs font-bold text-rose-200"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {recentRecords.length === 0 && (
+                        <tr>
+                          <td colSpan="8" className="p-8 text-center text-zinc-500">
+                            No supplier records for this period.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </section>
           </div>
