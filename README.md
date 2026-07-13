@@ -10,10 +10,11 @@
 - 菜单点餐：分类、图片、价格、Popular、Sold Out、搜索、数量调整、备注
 - 当前订单：Subtotal、Service Charge 10%、GST 9%、Discount、Total
 - Hold Order / Send to Kitchen
-- KDS 厨房显示：New / Preparing / Ready / Served
+- KDS 厨房显示：New / Preparing / Ready / Served，并可开启新单铃声
 - 收银付款：Cash / Card / PayNow / QR Pay / Split Bill、现金找零、付款参考编号
 - 付款成功后生成 Receipt，并可用浏览器打印小票
-- Sales 报表：今日/本月/全部收入、订单数、平均订单、收入拆分、热卖菜品、付款方式统计、图表
+- Sales 报表：今日/本月/全部收入、供应商成本、Profit / Loss、订单数、平均订单、收入拆分、热卖菜品、付款方式统计、图表
+- Supplier 管理：供应商目录、进货/开销记录、已付/未付、分类成本、发票编号
 - 员工管理：今日上班员工、打卡记录、今日工时、本月工时
 - 后台菜单管理：添加、改价、删除、修改图片、Popular、Sold Out
 - Cloud Sync：可接 Firebase Realtime Database，让手机、iPad、电脑同步订单、桌台、Sales、员工打卡和菜单
@@ -60,11 +61,13 @@ http://127.0.0.1:4173/
 3. 点击任意食物卡片加入订单。
 4. 在右侧订单栏调整数量、删除菜品、设置备注或折扣。
 5. 点击 `Send to Kitchen`，到 KDS 页面查看厨房工单。
-6. 点击 `Cashier`，选择付款方式；Cash 会计算找零，Card / QR Pay 可以填付款参考编号。
-7. 点击 `Complete Payment & Receipt`，查看生成的 Receipt。
-8. 点击 `Print Receipt` 可用电脑/平板浏览器选择小票打印机打印。
-9. 进入 `Sales` 查看今日、本月、全部收入、热卖菜品和付款方式统计。
-10. 进入 `Menu` 添加菜品、改价、改图片、删除或设置 Sold Out。
+6. 在 KDS 页面点击 `Enable Bell`，之后新订单进厨房会响铃。
+7. 点击 `Cashier`，选择付款方式；Cash 会计算找零，Card / QR Pay 可以填付款参考编号。
+8. 点击 `Complete Payment & Receipt`，查看生成的 Receipt。
+9. 点击 `Print Receipt` 可用电脑/平板浏览器选择小票打印机打印。
+10. 进入 `Supplier` 记录进货、包装、水电、租金、工资等成本。
+11. 进入 `Sales` 查看今日、本月、全部收入、供应商成本和 Profit / Loss。
+12. 进入 `Menu` 添加菜品、改价、改图片、删除或设置 Sold Out。
 
 登录页和 Manager 顶部都有 `Reset Demo Data` / `Reset Demo`，可一键清空测试数据并恢复初始状态。
 
@@ -114,6 +117,7 @@ http://127.0.0.1:4173/
 - 订单
 - KDS 工单
 - 付款和销售记录
+- Supplier 供应商和成本记录
 - 员工打卡记录
 
 Sales 报表是根据付款记录自动统计，所以每天和每月都会保留记录。只要不清除浏览器 LocalStorage，旧日期的销售和打卡资料都会继续存在。
@@ -149,6 +153,7 @@ aurora-ipad-pos-session-v1
 - 当前订单
 - KDS 厨房单
 - 付款和 Sales
+- Supplier 供应商和成本记录
 - 员工打卡
 - 菜单和员工设置
 
