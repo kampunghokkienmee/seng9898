@@ -429,10 +429,65 @@
         }
       }
 
+      function normalizeCloudConfig(config, forceEnabled = false) {
+        return {
+          enabled: forceEnabled ? true : Boolean(config?.enabled),
+          restaurantId: String(config?.restaurantId || defaultCloudConfig.restaurantId).trim() || defaultCloudConfig.restaurantId,
+          apiKey: String(config?.apiKey || "").trim(),
+          authDomain: String(config?.authDomain || "").trim(),
+          databaseURL: String(config?.databaseURL || "").trim(),
+          projectId: String(config?.projectId || "").trim(),
+          appId: String(config?.appId || "").trim(),
+        };
+      }
+
+      function toBase64Url(value) {
+        const bytes = new TextEncoder().encode(value);
+        const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
+        return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+      }
+
+      function fromBase64Url(value) {
+        const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+        const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+        const binary = atob(padded);
+        const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+        return new TextDecoder().decode(bytes);
+      }
+
+      function encodeCloudConfig(config) {
+        return toBase64Url(JSON.stringify(normalizeCloudConfig(config, true)));
+      }
+
+      function decodeCloudConfig(value) {
+        return normalizeCloudConfig(JSON.parse(fromBase64Url(value)), true);
+      }
+
+      function cloudConfigFromUrl() {
+        try {
+          const hash = window.location.hash ? window.location.hash.slice(1) : "";
+          if (!hash) return null;
+          const params = new URLSearchParams(hash);
+          const token = params.get("sync") || params.get("cloud");
+          return token ? decodeCloudConfig(token) : null;
+        } catch (error) {
+          return null;
+        }
+      }
+
       function loadCloudConfig() {
+        const sharedConfig = cloudConfigFromUrl();
+        if (sharedConfig) {
+          localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify(sharedConfig));
+          if (window.history?.replaceState) {
+            window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+          }
+          return { ...defaultCloudConfig, ...sharedConfig };
+        }
+
         try {
           const saved = JSON.parse(localStorage.getItem(CLOUD_CONFIG_KEY));
-          return { ...defaultCloudConfig, ...(saved || {}) };
+          return { ...defaultCloudConfig, ...normalizeCloudConfig(saved || {}) };
         } catch (error) {
           return { ...defaultCloudConfig };
         }
@@ -3205,6 +3260,7 @@
         const [settingsForm, setSettingsForm] = useState(settings);
         const [staffForm, setStaffForm] = useState(emptyStaffForm);
         const [cloudForm, setCloudForm] = useState({ ...defaultCloudConfig, ...(cloudConfig || {}) });
+        const [cloudCopyMessage, setCloudCopyMessage] = useState("");
         const editingStaff = Boolean(staffForm.id);
         const syncTone =
           syncStatus.kind === "online"
@@ -3249,21 +3305,32 @@
         }
 
         function saveCloudSettings() {
-          setCloudConfig({
-            enabled: Boolean(cloudForm.enabled),
-            restaurantId: cloudForm.restaurantId.trim() || defaultCloudConfig.restaurantId,
-            apiKey: cloudForm.apiKey.trim(),
-            authDomain: cloudForm.authDomain.trim(),
-            databaseURL: cloudForm.databaseURL.trim(),
-            projectId: cloudForm.projectId.trim(),
-            appId: cloudForm.appId.trim(),
-          });
+          setCloudConfig(normalizeCloudConfig(cloudForm));
+          setCloudCopyMessage("");
         }
 
         function disableCloudSync() {
           const next = { ...cloudForm, enabled: false };
           setCloudForm(next);
           setCloudConfig(next);
+          setCloudCopyMessage("");
+        }
+
+        async function copyCloudSetupLink() {
+          const next = normalizeCloudConfig({ ...cloudForm, enabled: true }, true);
+          if (!next.apiKey || !next.databaseURL || !next.projectId) {
+            setCloudCopyMessage("Fill Firebase fields first.");
+            return;
+          }
+
+          const link = `${window.location.origin}${window.location.pathname}${window.location.search}#sync=${encodeCloudConfig(next)}`;
+          try {
+            await navigator.clipboard.writeText(link);
+            setCloudCopyMessage("Setup link copied. Open it once on phone or iPad.");
+          } catch (error) {
+            window.prompt("Copy setup link", link);
+            setCloudCopyMessage("Setup link ready.");
+          }
         }
 
         return (
@@ -3409,12 +3476,18 @@
                   <div className="mt-4 rounded-lg border border-line bg-panel p-3 text-sm text-zinc-400">
                     Status: {syncStatus.message}
                   </div>
-                  <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
                     <button
                       onClick={saveCloudSettings}
                       className="min-h-12 rounded-lg bg-orange font-black text-black"
                     >
                       Save Cloud Sync
+                    </button>
+                    <button
+                      onClick={copyCloudSetupLink}
+                      className="min-h-12 rounded-lg border border-orange/40 bg-orange/10 font-black text-orange2"
+                    >
+                      Copy Setup Link
                     </button>
                     <button
                       onClick={disableCloudSync}
@@ -3423,6 +3496,11 @@
                       Local Only
                     </button>
                   </div>
+                  {cloudCopyMessage ? (
+                    <div className="mt-3 rounded-lg border border-line bg-panel p-3 text-sm text-zinc-300">
+                      {cloudCopyMessage}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </section>
