@@ -642,6 +642,7 @@
           Held: "border-amber-400/40 bg-amber-500/10 text-amber-200",
           Sent: "border-sky-400/40 bg-sky-500/10 text-sky-200",
           Paid: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200",
+          Cancelled: "border-rose-400/40 bg-rose-500/10 text-rose-200",
           New: "border-orange/50 bg-orange/15 text-orange2",
           Preparing: "border-sky-400/40 bg-sky-500/10 text-sky-200",
           Ready: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200",
@@ -865,9 +866,9 @@
         const [selectedOrderId, setSelectedOrderId] = useState(null);
         const [receipt, setReceipt] = useState(null);
 
-        const openOrders = state.orders.filter((order) => order.status !== "Paid");
-        const activeOrder = state.orders.find((order) => order.id === activeOrderId) || null;
-        const selectedOrder = state.orders.find((order) => order.id === selectedOrderId) || activeOrder || openOrders[0] || null;
+        const openOrders = state.orders.filter((order) => !["Paid", "Cancelled"].includes(order.status));
+        const activeOrder = openOrders.find((order) => order.id === activeOrderId) || null;
+        const selectedOrder = openOrders.find((order) => order.id === selectedOrderId) || activeOrder || openOrders[0] || null;
         const todayPayments = state.payments.filter((payment) => payment.date === todayKey());
         const onDuty = state.timecards.filter((card) => card.date === todayKey() && !card.clockOut);
         const syncTone =
@@ -1118,6 +1119,37 @@
           if (activeOrderId === order.id) setActiveOrderId(null);
         }
 
+        function cancelOrder(order, reason = "Cancelled at cashier") {
+          if (!order) return;
+          const now = new Date().toISOString();
+          setState((current) => ({
+            ...current,
+            orders: current.orders.map((item) =>
+              item.id === order.id
+                ? {
+                    ...item,
+                    status: "Cancelled",
+                    cancelledAt: now,
+                    cancelledBy: user.name,
+                    cancelReason: reason,
+                  }
+                : item
+            ),
+            tables: current.tables.map((table) =>
+              table.id === order.tableId && table.orderId === order.id
+                ? { ...table, status: "Available", orderId: null }
+                : table
+            ),
+            kitchenTickets: current.kitchenTickets.map((ticket) =>
+              ticket.orderId === order.id && !ticket.archived
+                ? { ...ticket, status: "Cancelled", archived: true, archivedAt: now, updatedAt: now }
+                : ticket
+            ),
+          }));
+          setSelectedOrderId(null);
+          if (activeOrderId === order.id) setActiveOrderId(null);
+        }
+
         function updateKitchenStatus(ticketId, status) {
           setState((current) => ({
             ...current,
@@ -1348,6 +1380,7 @@
                     selectedOrder={selectedOrder}
                     onSelect={(orderId) => setSelectedOrderId(orderId)}
                     onPayment={completePayment}
+                    onCancel={cancelOrder}
                     onTables={() => setView("tables")}
                   />
                 )}
@@ -1925,7 +1958,7 @@
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-2">
                         <button
-                          onClick={() => onStatus(ticket.id, ticket.status || "Served")}
+                          onClick={() => onStatus(ticket.id, KDS_STATUSES.includes(ticket.status) ? ticket.status : "New")}
                           className="min-h-10 rounded-md border border-line bg-panel text-xs font-bold text-zinc-300"
                         >
                           Restore
@@ -1954,7 +1987,7 @@
         );
       }
 
-      function CashierView({ orders, selectedOrder, onSelect, onPayment, onTables }) {
+      function CashierView({ orders, selectedOrder, onSelect, onPayment, onCancel, onTables }) {
         const [method, setMethod] = useState("Cash");
         const [splitCount, setSplitCount] = useState(2);
         const [cashReceived, setCashReceived] = useState("");
@@ -1985,6 +2018,14 @@
             changeDue,
             reference: needsReference ? paymentRef.trim() : method === "Split Bill" ? `${splitQty} ways` : "",
           });
+        }
+
+        function voidOrder() {
+          if (!selectedOrder) return;
+          const label = selectedOrder.tableId ? `Table ${selectedOrder.tableId}` : "Takeaway";
+          if (window.confirm(`Cancel ${selectedOrder.number} (${label})? This will release the table and it will not count in Sales.`)) {
+            onCancel(selectedOrder, "Wrong order cancelled before payment");
+          }
         }
 
         return (
@@ -2175,6 +2216,14 @@
                     className="mt-5 min-h-16 w-full rounded-lg bg-orange text-lg font-black text-black disabled:opacity-40"
                   >
                     Complete Payment & Receipt
+                  </button>
+                  <button
+                    onClick={voidOrder}
+                    data-testid="void-order"
+                    disabled={!selectedOrder}
+                    className="mt-3 min-h-14 w-full rounded-lg border border-rose-400/40 bg-rose-500/10 text-base font-black text-rose-200 disabled:opacity-40"
+                  >
+                    Void / Cancel Order
                   </button>
                 </div>
               </div>
