@@ -100,6 +100,43 @@
         body.receipt-printing .screen-only {
           display: none !important;
         }
+
+        body.attendance-printing {
+          background: #fff;
+          color: #111;
+        }
+
+        body.attendance-printing * {
+          visibility: hidden !important;
+        }
+
+        body.attendance-printing #attendance-print-area,
+        body.attendance-printing #attendance-print-area * {
+          visibility: visible !important;
+        }
+
+        body.attendance-printing #attendance-print-area {
+          position: fixed;
+          inset: 0 auto auto 0;
+          width: 100%;
+          max-width: none;
+          border: 0 !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          background: #fff !important;
+          color: #111 !important;
+          padding: 24px !important;
+        }
+
+        body.attendance-printing #attendance-print-area * {
+          background: transparent !important;
+          color: #111 !important;
+          border-color: #ddd !important;
+        }
+
+        body.attendance-printing .screen-only {
+          display: none !important;
+        }
       }
     </style>
   </head>
@@ -2935,6 +2972,8 @@
 
       function StaffView({ state, setState, staffDirectory }) {
         const [selectedStaffId, setSelectedStaffId] = useState(staffDirectory[0].id);
+        const [attendanceRange, setAttendanceRange] = useState("today");
+        const [attendanceDate, setAttendanceDate] = useState(todayKey());
         const emptyStaffForm = { id: "", name: "", role: "Server", pin: "" };
         const [staffForm, setStaffForm] = useState(emptyStaffForm);
         const editingStaff = Boolean(staffForm.id);
@@ -2944,6 +2983,25 @@
         const monthCards = state.timecards.filter((card) => (card.date || "").startsWith(monthKey()));
         const todayHours = todayCards.reduce((sum, card) => sum + shiftHours(card), 0);
         const monthHours = monthCards.reduce((sum, card) => sum + shiftHours(card), 0);
+        const attendanceMonth = attendanceDate.slice(0, 7);
+        const attendanceCards = state.timecards
+          .filter((card) => {
+            if (attendanceRange === "today") return card.date === attendanceDate;
+            if (attendanceRange === "month") return (card.date || "").startsWith(attendanceMonth);
+            return true;
+          })
+          .sort((a, b) => new Date(b.clockIn || b.date).getTime() - new Date(a.clockIn || a.date).getTime());
+        const attendanceTotalHours = attendanceCards.reduce((sum, card) => sum + shiftHours(card), 0);
+        const attendanceOpenShifts = attendanceCards.filter((card) => !card.clockOut).length;
+        const attendanceStaffRows = staffDirectory.map((staff) => {
+          const staffCards = attendanceCards.filter((card) => card.staffId === staff.id);
+          return {
+            ...staff,
+            shifts: staffCards.length,
+            hours: staffCards.reduce((sum, card) => sum + shiftHours(card), 0),
+            onDuty: staffCards.some((card) => !card.clockOut),
+          };
+        });
         const staffHourRows = staffDirectory.map((staff) => {
           const staffToday = todayCards.filter((card) => card.staffId === staff.id);
           const staffMonth = monthCards.filter((card) => card.staffId === staff.id);
@@ -3014,6 +3072,21 @@
             return current;
           });
         }
+
+        function printAttendanceReport() {
+          document.body.classList.add("attendance-printing");
+          setTimeout(() => {
+            window.print();
+            setTimeout(() => document.body.classList.remove("attendance-printing"), 400);
+          }, 50);
+        }
+
+        const attendanceTitle =
+          attendanceRange === "today"
+            ? `Attendance Report / ${displayDate(attendanceDate)}`
+            : attendanceRange === "month"
+            ? `Attendance Report / ${attendanceMonth}`
+            : "Attendance Report / All Records";
 
         return (
           <div className="grid h-full grid-cols-1 gap-5 overflow-auto p-5 xl:grid-cols-[340px_420px_1fr]">
@@ -3141,68 +3214,140 @@
               </div>
             </section>
 
-            <section className="rounded-lg border border-line bg-panel p-5">
-              <h3 className="text-xl font-black">Today Staff Attendance</h3>
-              <div className="mt-4 overflow-hidden rounded-lg border border-line">
-                <table className="w-full text-left text-sm">
+            <section id="attendance-print-area" className="rounded-lg border border-line bg-panel p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-xl font-black">{attendanceTitle}</h3>
+                  <div className="mt-1 text-sm text-zinc-400">
+                    Clock in/out records, total hours, and open shifts.
+                  </div>
+                </div>
+                <button
+                  onClick={printAttendanceReport}
+                  className="screen-only min-h-11 rounded-lg bg-orange px-4 text-sm font-black text-black"
+                >
+                  Print Report
+                </button>
+              </div>
+
+              <div className="screen-only mt-4 flex flex-wrap gap-2">
+                {[
+                  ["today", "Today"],
+                  ["month", "This Month"],
+                  ["all", "All"],
+                ].map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setAttendanceRange(key)}
+                    className={cx(
+                      "min-h-10 rounded-lg border px-3 text-xs font-black",
+                      attendanceRange === key ? "border-orange bg-orange text-black" : "border-line bg-ink text-zinc-300"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+                {attendanceRange !== "all" && (
+                  <input
+                    type="date"
+                    value={attendanceDate}
+                    onChange={(event) => setAttendanceDate(event.target.value || todayKey())}
+                    className="min-h-10 rounded-lg border border-line bg-ink px-3 text-sm text-white outline-none focus:border-orange"
+                  />
+                )}
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
+                <div className="rounded-lg border border-line bg-ink p-4">
+                  <div className="text-sm text-zinc-400">Shifts</div>
+                  <div className="mt-2 text-2xl font-black">{attendanceCards.length}</div>
+                </div>
+                <div className="rounded-lg border border-line bg-ink p-4">
+                  <div className="text-sm text-zinc-400">Total Hours</div>
+                  <div className="mt-2 text-2xl font-black text-orange2">{formatHours(attendanceTotalHours)}</div>
+                </div>
+                <div className="rounded-lg border border-line bg-ink p-4">
+                  <div className="text-sm text-zinc-400">Open Shifts</div>
+                  <div className="mt-2 text-2xl font-black text-emerald-300">{attendanceOpenShifts}</div>
+                </div>
+                <div className="rounded-lg border border-line bg-ink p-4">
+                  <div className="text-sm text-zinc-400">Printed</div>
+                  <div className="mt-2 text-lg font-black">{displayDateTime()}</div>
+                </div>
+              </div>
+
+              <div className="mt-4 overflow-auto rounded-lg border border-line">
+                <table className="w-full min-w-[860px] text-left text-sm">
                   <thead className="bg-ink text-zinc-400">
                     <tr>
                       <th className="p-3">Staff</th>
+                      <th className="p-3">Role</th>
+                      <th className="p-3 text-right">Shifts</th>
+                      <th className="p-3 text-right">Hours</th>
                       <th className="p-3">Status</th>
-                      <th className="p-3 text-right">Today</th>
-                      <th className="p-3 text-right">This Month</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {staffHourRows.map((staff) => (
+                    {attendanceStaffRows.map((staff) => (
                       <tr key={staff.id} className="border-t border-line">
                         <td className="p-3 font-semibold">{staff.name}</td>
+                        <td className="p-3 text-zinc-400">{staff.role}</td>
+                        <td className="p-3 text-right font-black">{staff.shifts}</td>
+                        <td className="p-3 text-right font-black text-orange2">{formatHours(staff.hours)}</td>
                         <td className="p-3">
                           <span className={cx("rounded-full border px-2 py-1 text-xs font-bold", staff.onDuty ? statusClass("Available") : statusClass("Served"))}>
                             {staff.onDuty ? "On Duty" : "Off Duty"}
                           </span>
                         </td>
-                        <td className="p-3 text-right font-black text-orange2">{formatHours(staff.todayHours)}</td>
-                        <td className="p-3 text-right font-black">{formatHours(staff.monthHours)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {todayCards.map((card) => (
-                  <div key={card.id} className="rounded-lg border border-line bg-ink p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-lg font-black">{card.staffName}</div>
-                        <div className="mt-1 text-sm text-zinc-400">{card.role}</div>
-                      </div>
-                      <span
-                        className={cx(
-                          "rounded-full border px-3 py-1 text-xs font-bold",
-                          card.clockOut ? statusClass("Served") : statusClass("Available")
-                        )}
-                      >
-                        {card.clockOut ? "Clocked Out" : "On Duty"}
-                      </span>
-                    </div>
-                    <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                      <div className="rounded-md bg-panel p-3">
-                        <div className="text-zinc-500">Clock In</div>
-                        <div className="font-bold">{displayTime(card.clockIn)}</div>
-                      </div>
-                      <div className="rounded-md bg-panel p-3">
-                        <div className="text-zinc-500">Clock Out</div>
-                        <div className="font-bold">{card.clockOut ? displayTime(card.clockOut) : "-"}</div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {todayCards.length === 0 && (
-                  <div className="rounded-lg border border-dashed border-line p-8 text-center text-zinc-500">
-                    No staff clock records today.
-                  </div>
-                )}
+
+              <div className="mt-4 overflow-auto rounded-lg border border-line">
+                <table className="w-full min-w-[980px] text-left text-sm">
+                  <thead className="bg-ink text-zinc-400">
+                    <tr>
+                      <th className="p-3">Date</th>
+                      <th className="p-3">Staff</th>
+                      <th className="p-3">Role</th>
+                      <th className="p-3">Clock In</th>
+                      <th className="p-3">Clock Out</th>
+                      <th className="p-3 text-right">Hours</th>
+                      <th className="p-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attendanceCards.map((card) => (
+                      <tr key={card.id} className="border-t border-line">
+                        <td className="p-3 text-zinc-400">{displayDate(card.date)}</td>
+                        <td className="p-3 font-semibold">{card.staffName}</td>
+                        <td className="p-3 text-zinc-400">{card.role}</td>
+                        <td className="p-3">{displayTime(card.clockIn)}</td>
+                        <td className="p-3">{card.clockOut ? displayTime(card.clockOut) : "-"}</td>
+                        <td className="p-3 text-right font-black text-orange2">{formatHours(shiftHours(card))}</td>
+                        <td className="p-3">
+                          <span
+                            className={cx(
+                              "rounded-full border px-2 py-1 text-xs font-bold",
+                              card.clockOut ? statusClass("Served") : statusClass("Available")
+                            )}
+                          >
+                            {card.clockOut ? "Clocked Out" : "On Duty"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {attendanceCards.length === 0 && (
+                      <tr>
+                        <td colSpan="7" className="p-8 text-center text-zinc-500">
+                          No staff clock records for this period.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </section>
           </div>
@@ -3396,6 +3541,7 @@
         const [staffForm, setStaffForm] = useState(emptyStaffForm);
         const [cloudForm, setCloudForm] = useState({ ...defaultCloudConfig, ...(cloudConfig || {}) });
         const [cloudCopyMessage, setCloudCopyMessage] = useState("");
+        const [printerStatus, setPrinterStatus] = useState("Use system print for the most reliable receipt printing.");
         const editingStaff = Boolean(staffForm.id);
         const syncTone =
           syncStatus.kind === "online"
@@ -3468,6 +3614,37 @@
           }
         }
 
+        async function testBluetoothPrinter() {
+          if (!navigator.bluetooth) {
+            setPrinterStatus("Direct Bluetooth is not supported in this browser. Pair the printer in device settings, then use Print Receipt / system print.");
+            return;
+          }
+
+          try {
+            setPrinterStatus("Choose your Bluetooth receipt printer...");
+            const device = await navigator.bluetooth.requestDevice({
+              acceptAllDevices: true,
+              optionalServices: [
+                "0000ff00-0000-1000-8000-00805f9b34fb",
+                "0000ffe0-0000-1000-8000-00805f9b34fb",
+                "0000fff0-0000-1000-8000-00805f9b34fb",
+              ],
+            });
+            if (device.gatt) {
+              await device.gatt.connect();
+            }
+            setPrinterStatus(`Bluetooth detected: ${device.name || "Receipt printer"}. If it does not print from the browser, use system print or AirPrint.`);
+          } catch (error) {
+            setPrinterStatus("Bluetooth connection cancelled or not compatible. Most iPad/iPhone browsers need AirPrint or system print.");
+          }
+        }
+
+        function showPrinterGuide() {
+          alert(
+            "Printer setup:\\n\\n1. Pair your 58mm/80mm printer in Windows/iPad/iPhone settings.\\n2. Complete a payment in POS.\\n3. Press Print Receipt.\\n4. Choose the receipt printer in the system print window.\\n\\nBluetooth direct works only on supported Chrome + BLE printers. iPad/iPhone usually needs AirPrint or system print."
+          );
+        }
+
         return (
           <div className="grid h-full grid-cols-1 gap-5 overflow-auto p-5 xl:grid-cols-[420px_1fr]">
             <section className="rounded-lg border border-line bg-panel p-5">
@@ -3519,19 +3696,33 @@
                     <div>
                       <h4 className="font-black">Printer Setup</h4>
                       <p className="mt-1 text-sm text-zinc-400">
-                        Use Print Receipt after payment, then choose your 58mm or 80mm receipt printer in Chrome/Safari.
+                        Use Print Receipt after payment, then choose your 58mm or 80mm receipt printer in the system print window.
                       </p>
                     </div>
                     <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-200">
                       Ready
                     </span>
                   </div>
-                  <button
-                    onClick={() => alert("Printer ready. Complete a payment, open the receipt, then press Print Receipt.")}
-                    className="mt-4 min-h-12 w-full rounded-lg border border-line bg-panel font-bold text-zinc-300"
-                  >
-                    Test Printer Guide
-                  </button>
+                  <div className="mt-4 rounded-lg border border-line bg-panel p-3 text-sm text-zinc-400">
+                    {printerStatus}
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    <button
+                      onClick={showPrinterGuide}
+                      className="min-h-12 rounded-lg border border-line bg-panel font-bold text-zinc-300"
+                    >
+                      Printer Guide
+                    </button>
+                    <button
+                      onClick={testBluetoothPrinter}
+                      className="min-h-12 rounded-lg border border-sky-400/30 bg-sky-500/10 font-bold text-sky-200"
+                    >
+                      Test Bluetooth
+                    </button>
+                  </div>
+                  <div className="mt-3 text-xs leading-relaxed text-zinc-500">
+                    iPad/iPhone Safari normally cannot directly control classic Bluetooth receipt printers. Pair the printer first and use AirPrint/system print where available.
+                  </div>
                 </div>
                 <div className="rounded-lg border border-line bg-ink p-4">
                   <div className="flex items-start justify-between gap-3">
