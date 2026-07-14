@@ -340,19 +340,19 @@
           if (!bellAudioContext) bellAudioContext = new AudioContext();
           if (bellAudioContext.state === "suspended") bellAudioContext.resume();
 
-          [0, 140, 300].forEach((delay, index) => {
+          [0, 170, 360, 570, 820].forEach((delay, index) => {
             setTimeout(() => {
               const oscillator = bellAudioContext.createOscillator();
               const gain = bellAudioContext.createGain();
-              oscillator.type = "sine";
-              oscillator.frequency.setValueAtTime(index === 1 ? 980 : 760, bellAudioContext.currentTime);
+              oscillator.type = "triangle";
+              oscillator.frequency.setValueAtTime(index % 2 ? 1080 : 820, bellAudioContext.currentTime);
               gain.gain.setValueAtTime(0.0001, bellAudioContext.currentTime);
-              gain.gain.exponentialRampToValueAtTime(0.2, bellAudioContext.currentTime + 0.02);
-              gain.gain.exponentialRampToValueAtTime(0.0001, bellAudioContext.currentTime + 0.16);
+              gain.gain.exponentialRampToValueAtTime(0.75, bellAudioContext.currentTime + 0.025);
+              gain.gain.exponentialRampToValueAtTime(0.0001, bellAudioContext.currentTime + 0.26);
               oscillator.connect(gain);
               gain.connect(bellAudioContext.destination);
               oscillator.start();
-              oscillator.stop(bellAudioContext.currentTime + 0.18);
+              oscillator.stop(bellAudioContext.currentTime + 0.28);
             }, delay);
           });
         } catch (error) {
