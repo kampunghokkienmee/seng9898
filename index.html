@@ -137,6 +137,43 @@
         body.attendance-printing .screen-only {
           display: none !important;
         }
+
+        body.leave-printing {
+          background: #fff;
+          color: #111;
+        }
+
+        body.leave-printing * {
+          visibility: hidden !important;
+        }
+
+        body.leave-printing #leave-print-area,
+        body.leave-printing #leave-print-area * {
+          visibility: visible !important;
+        }
+
+        body.leave-printing #leave-print-area {
+          position: fixed;
+          inset: 0 auto auto 0;
+          width: 100%;
+          max-width: none;
+          border: 0 !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          background: #fff !important;
+          color: #111 !important;
+          padding: 24px !important;
+        }
+
+        body.leave-printing #leave-print-area * {
+          background: transparent !important;
+          color: #111 !important;
+          border-color: #ddd !important;
+        }
+
+        body.leave-printing .screen-only {
+          display: none !important;
+        }
       }
     </style>
   </head>
@@ -159,6 +196,8 @@
       const PAYMENT_METHODS = ["Cash", "Card", "PayNow / QR Pay", "Split Bill"];
       const KDS_STATUSES = ["New", "Preparing", "Ready", "Served"];
       const TABLE_STATUSES = ["Available", "Occupied", "Reserved", "Cleaning"];
+      const LEAVE_TYPES = ["Annual Leave", "Medical Leave", "Unpaid Leave", "Emergency Leave", "Off Day", "Other"];
+      const LEAVE_STATUSES = ["Pending", "Approved", "Rejected"];
       const SUPPLIER_CATEGORIES = [
         "Food Ingredients",
         "Packaging",
@@ -316,6 +355,13 @@
         return `${Number(value || 0).toFixed(1)}h`;
       }
 
+      function leaveDays(startDate, endDate) {
+        const start = new Date(startDate || todayKey()).getTime();
+        const end = new Date(endDate || startDate || todayKey()).getTime();
+        if (!Number.isFinite(start) || !Number.isFinite(end)) return 1;
+        return Math.max(1, Math.floor((end - start) / 86400000) + 1);
+      }
+
       function summarizePayments(payments) {
         return payments.reduce(
           (acc, payment) => {
@@ -404,6 +450,11 @@
               ? { ...card, staffName: nextStaff.name, role: nextStaff.role }
               : card
           ),
+          leaveRequests: (current.leaveRequests || []).map((request) =>
+            request.staffId === nextStaff.id
+              ? { ...request, staffName: nextStaff.name, role: nextStaff.role }
+              : request
+          ),
         };
       }
 
@@ -430,6 +481,7 @@
           suppliers: defaultSuppliers.map((supplier) => ({ ...supplier })),
           supplierRecords: [],
           timecards: [],
+          leaveRequests: [],
         };
       }
 
@@ -454,6 +506,7 @@
           suppliers: saved.suppliers?.length ? saved.suppliers : defaultSuppliers.map((supplier) => ({ ...supplier })),
           supplierRecords: saved.supplierRecords || [],
           timecards: saved.timecards || [],
+          leaveRequests: saved.leaveRequests || [],
         };
       }
 
@@ -2449,6 +2502,7 @@
                   </tbody>
                 </table>
               </div>
+              </div>
             </section>
           </div>
         );
@@ -2975,14 +3029,54 @@
         const [attendanceRange, setAttendanceRange] = useState("today");
         const [attendanceDate, setAttendanceDate] = useState(todayKey());
         const emptyStaffForm = { id: "", name: "", role: "Server", pin: "" };
+        const emptyLeaveForm = {
+          id: "",
+          staffId: staffDirectory[0]?.id || "",
+          type: LEAVE_TYPES[0],
+          startDate: todayKey(),
+          endDate: todayKey(),
+          status: "Pending",
+          reason: "",
+        };
         const [staffForm, setStaffForm] = useState(emptyStaffForm);
+        const [leaveForm, setLeaveForm] = useState(emptyLeaveForm);
+        const [leaveRange, setLeaveRange] = useState("month");
+        const [leaveDate, setLeaveDate] = useState(todayKey());
         const editingStaff = Boolean(staffForm.id);
+        const editingLeave = Boolean(leaveForm.id);
         const selectedStaff = staffDirectory.find((staff) => staff.id === selectedStaffId) || staffDirectory[0];
+        const leaveRequests = state.leaveRequests || [];
         const todayCards = state.timecards.filter((card) => card.date === todayKey());
         const onDuty = todayCards.filter((card) => !card.clockOut);
         const monthCards = state.timecards.filter((card) => (card.date || "").startsWith(monthKey()));
         const todayHours = todayCards.reduce((sum, card) => sum + shiftHours(card), 0);
         const monthHours = monthCards.reduce((sum, card) => sum + shiftHours(card), 0);
+        const leaveMonth = leaveDate.slice(0, 7);
+        const leaveReportRows = leaveRequests
+          .filter((request) => {
+            const start = request.startDate || todayKey();
+            const end = request.endDate || start;
+            if (leaveRange === "today") return start <= leaveDate && end >= leaveDate;
+            if (leaveRange === "month") return start <= `${leaveMonth}-31` && end >= `${leaveMonth}-01`;
+            return true;
+          })
+          .sort((a, b) => new Date(b.startDate || b.createdAt).getTime() - new Date(a.startDate || a.createdAt).getTime());
+        const leaveTotalDays = leaveReportRows.reduce((sum, request) => sum + leaveDays(request.startDate, request.endDate), 0);
+        const leaveApprovedDays = leaveReportRows
+          .filter((request) => request.status === "Approved")
+          .reduce((sum, request) => sum + leaveDays(request.startDate, request.endDate), 0);
+        const leavePendingCount = leaveReportRows.filter((request) => request.status === "Pending").length;
+        const leaveSummaryRows = staffDirectory.map((staff) => {
+          const staffLeaves = leaveReportRows.filter((request) => request.staffId === staff.id);
+          return {
+            ...staff,
+            requests: staffLeaves.length,
+            approvedDays: staffLeaves
+              .filter((request) => request.status === "Approved")
+              .reduce((sum, request) => sum + leaveDays(request.startDate, request.endDate), 0),
+            pending: staffLeaves.filter((request) => request.status === "Pending").length,
+          };
+        });
         const attendanceMonth = attendanceDate.slice(0, 7);
         const attendanceCards = state.timecards
           .filter((card) => {
@@ -3016,6 +3110,9 @@
         useEffect(() => {
           if (!staffDirectory.find((staff) => staff.id === selectedStaffId)) {
             setSelectedStaffId(staffDirectory[0]?.id || "");
+          }
+          if (!staffDirectory.find((staff) => staff.id === leaveForm.staffId)) {
+            setLeaveForm((current) => ({ ...current, staffId: staffDirectory[0]?.id || "" }));
           }
         }, [staffDirectory, selectedStaffId]);
 
@@ -3081,12 +3178,71 @@
           }, 50);
         }
 
+        function saveLeaveRequest() {
+          const staff = staffDirectory.find((item) => item.id === leaveForm.staffId) || staffDirectory[0];
+          if (!staff || !leaveForm.startDate) return;
+          const startDate = leaveForm.startDate;
+          const endDate = leaveForm.endDate && leaveForm.endDate >= startDate ? leaveForm.endDate : startDate;
+          const request = {
+            id: leaveForm.id || uid("leave"),
+            staffId: staff.id,
+            staffName: staff.name,
+            role: staff.role,
+            type: leaveForm.type,
+            startDate,
+            endDate,
+            days: leaveDays(startDate, endDate),
+            status: leaveForm.status,
+            reason: leaveForm.reason.trim(),
+            createdAt: leaveForm.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          setState((current) => ({
+            ...current,
+            leaveRequests: editingLeave
+              ? (current.leaveRequests || []).map((item) => (item.id === request.id ? request : item))
+              : [request, ...(current.leaveRequests || [])],
+          }));
+          setLeaveForm({ ...emptyLeaveForm, staffId: staff.id, startDate, endDate });
+        }
+
+        function updateLeaveStatus(id, status) {
+          setState((current) => ({
+            ...current,
+            leaveRequests: (current.leaveRequests || []).map((request) =>
+              request.id === id ? { ...request, status, updatedAt: new Date().toISOString() } : request
+            ),
+          }));
+        }
+
+        function deleteLeaveRequest(id) {
+          setState((current) => ({
+            ...current,
+            leaveRequests: (current.leaveRequests || []).filter((request) => request.id !== id),
+          }));
+          if (leaveForm.id === id) setLeaveForm(emptyLeaveForm);
+        }
+
+        function printLeaveReport() {
+          document.body.classList.add("leave-printing");
+          setTimeout(() => {
+            window.print();
+            setTimeout(() => document.body.classList.remove("leave-printing"), 400);
+          }, 50);
+        }
+
         const attendanceTitle =
           attendanceRange === "today"
             ? `Attendance Report / ${displayDate(attendanceDate)}`
             : attendanceRange === "month"
             ? `Attendance Report / ${attendanceMonth}`
             : "Attendance Report / All Records";
+        const leaveTitle =
+          leaveRange === "today"
+            ? `Leave Report / ${displayDate(leaveDate)}`
+            : leaveRange === "month"
+            ? `Leave Report / ${leaveMonth}`
+            : "Leave Report / All Records";
 
         return (
           <div className="grid h-full grid-cols-1 gap-5 overflow-auto p-5 xl:grid-cols-[340px_420px_1fr]">
@@ -3214,7 +3370,261 @@
               </div>
             </section>
 
-            <section id="attendance-print-area" className="rounded-lg border border-line bg-panel p-5">
+            <section className="space-y-5">
+              <div id="leave-print-area" className="rounded-lg border border-line bg-panel p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-xl font-black">{leaveTitle}</h3>
+                    <div className="mt-1 text-sm text-zinc-400">
+                      Record staff leave, approval status, and total leave days.
+                    </div>
+                  </div>
+                  <button
+                    onClick={printLeaveReport}
+                    className="screen-only min-h-11 rounded-lg bg-orange px-4 text-sm font-black text-black"
+                  >
+                    Print Leave Report
+                  </button>
+                </div>
+
+                <div className="screen-only mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  <div>
+                    <label className="text-sm font-semibold text-zinc-400">Staff</label>
+                    <select
+                      value={leaveForm.staffId}
+                      onChange={(event) => setLeaveForm({ ...leaveForm, staffId: event.target.value })}
+                      className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                    >
+                      {staffDirectory.map((staff) => (
+                        <option key={staff.id} value={staff.id}>
+                          {staff.name} - {staff.role}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-zinc-400">Leave Type</label>
+                    <select
+                      value={leaveForm.type}
+                      onChange={(event) => setLeaveForm({ ...leaveForm, type: event.target.value })}
+                      className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                    >
+                      {LEAVE_TYPES.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-zinc-400">Start Date</label>
+                    <input
+                      type="date"
+                      value={leaveForm.startDate}
+                      onChange={(event) => setLeaveForm({ ...leaveForm, startDate: event.target.value })}
+                      className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-zinc-400">End Date</label>
+                    <input
+                      type="date"
+                      value={leaveForm.endDate}
+                      onChange={(event) => setLeaveForm({ ...leaveForm, endDate: event.target.value })}
+                      className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-zinc-400">Status</label>
+                    <select
+                      value={leaveForm.status}
+                      onChange={(event) => setLeaveForm({ ...leaveForm, status: event.target.value })}
+                      className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                    >
+                      {LEAVE_STATUSES.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-zinc-400">Reason / Note</label>
+                    <input
+                      value={leaveForm.reason}
+                      onChange={(event) => setLeaveForm({ ...leaveForm, reason: event.target.value })}
+                      placeholder="Family, medical, annual leave..."
+                      className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
+                    />
+                  </div>
+                </div>
+
+                <div className="screen-only mt-4 grid grid-cols-2 gap-3">
+                  <button
+                    onClick={saveLeaveRequest}
+                    className="min-h-12 rounded-lg bg-orange font-black text-black"
+                  >
+                    {editingLeave ? "Save Leave" : "Add Leave"}
+                  </button>
+                  <button
+                    onClick={() => setLeaveForm(emptyLeaveForm)}
+                    className="min-h-12 rounded-lg border border-line bg-ink font-black"
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                <div className="screen-only mt-4 flex flex-wrap gap-2">
+                  {[
+                    ["today", "Today"],
+                    ["month", "This Month"],
+                    ["all", "All"],
+                  ].map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => setLeaveRange(key)}
+                      className={cx(
+                        "min-h-10 rounded-lg border px-3 text-xs font-black",
+                        leaveRange === key ? "border-orange bg-orange text-black" : "border-line bg-ink text-zinc-300"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  {leaveRange !== "all" && (
+                    <input
+                      type="date"
+                      value={leaveDate}
+                      onChange={(event) => setLeaveDate(event.target.value || todayKey())}
+                      className="min-h-10 rounded-lg border border-line bg-ink px-3 text-sm text-white outline-none focus:border-orange"
+                    />
+                  )}
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
+                  <div className="rounded-lg border border-line bg-ink p-4">
+                    <div className="text-sm text-zinc-400">Requests</div>
+                    <div className="mt-2 text-2xl font-black">{leaveReportRows.length}</div>
+                  </div>
+                  <div className="rounded-lg border border-line bg-ink p-4">
+                    <div className="text-sm text-zinc-400">Total Days</div>
+                    <div className="mt-2 text-2xl font-black text-orange2">{leaveTotalDays}</div>
+                  </div>
+                  <div className="rounded-lg border border-line bg-ink p-4">
+                    <div className="text-sm text-zinc-400">Approved Days</div>
+                    <div className="mt-2 text-2xl font-black text-emerald-300">{leaveApprovedDays}</div>
+                  </div>
+                  <div className="rounded-lg border border-line bg-ink p-4">
+                    <div className="text-sm text-zinc-400">Pending</div>
+                    <div className="mt-2 text-2xl font-black text-amber-200">{leavePendingCount}</div>
+                  </div>
+                </div>
+
+                <div className="mt-4 overflow-auto rounded-lg border border-line">
+                  <table className="w-full min-w-[760px] text-left text-sm">
+                    <thead className="bg-ink text-zinc-400">
+                      <tr>
+                        <th className="p-3">Staff</th>
+                        <th className="p-3">Role</th>
+                        <th className="p-3 text-right">Requests</th>
+                        <th className="p-3 text-right">Approved Days</th>
+                        <th className="p-3 text-right">Pending</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {leaveSummaryRows.map((staff) => (
+                        <tr key={staff.id} className="border-t border-line">
+                          <td className="p-3 font-semibold">{staff.name}</td>
+                          <td className="p-3 text-zinc-400">{staff.role}</td>
+                          <td className="p-3 text-right font-black">{staff.requests}</td>
+                          <td className="p-3 text-right font-black text-orange2">{staff.approvedDays}</td>
+                          <td className="p-3 text-right font-black text-amber-200">{staff.pending}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-4 overflow-auto rounded-lg border border-line">
+                  <table className="w-full min-w-[1080px] text-left text-sm">
+                    <thead className="bg-ink text-zinc-400">
+                      <tr>
+                        <th className="p-3">Staff</th>
+                        <th className="p-3">Type</th>
+                        <th className="p-3">Start</th>
+                        <th className="p-3">End</th>
+                        <th className="p-3 text-right">Days</th>
+                        <th className="p-3">Status</th>
+                        <th className="p-3">Reason</th>
+                        <th className="screen-only p-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {leaveReportRows.map((request) => (
+                        <tr key={request.id} className="border-t border-line">
+                          <td className="p-3 font-semibold">{request.staffName}</td>
+                          <td className="p-3 text-zinc-400">{request.type}</td>
+                          <td className="p-3">{displayDate(request.startDate)}</td>
+                          <td className="p-3">{displayDate(request.endDate || request.startDate)}</td>
+                          <td className="p-3 text-right font-black text-orange2">{leaveDays(request.startDate, request.endDate)}</td>
+                          <td className="p-3">
+                            <span
+                              className={cx(
+                                "rounded-full border px-2 py-1 text-xs font-bold",
+                                request.status === "Approved"
+                                  ? statusClass("Available")
+                                  : request.status === "Rejected"
+                                  ? statusClass("Served")
+                                  : statusClass("Held")
+                              )}
+                            >
+                              {request.status}
+                            </span>
+                          </td>
+                          <td className="p-3 text-zinc-400">{request.reason || "-"}</td>
+                          <td className="screen-only p-3">
+                            <div className="flex justify-end gap-2">
+                              <button
+                                onClick={() => setLeaveForm({ ...request })}
+                                className="min-h-9 rounded-md border border-line bg-ink px-3 text-xs font-bold"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => updateLeaveStatus(request.id, "Approved")}
+                                className="min-h-9 rounded-md border border-emerald-400/30 bg-emerald-500/10 px-3 text-xs font-bold text-emerald-200"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => updateLeaveStatus(request.id, "Rejected")}
+                                className="min-h-9 rounded-md border border-line bg-ink px-3 text-xs font-bold"
+                              >
+                                Reject
+                              </button>
+                              <button
+                                onClick={() => deleteLeaveRequest(request.id)}
+                                className="min-h-9 rounded-md border border-rose-400/30 bg-rose-500/10 px-3 text-xs font-bold text-rose-200"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {leaveReportRows.length === 0 && (
+                        <tr>
+                          <td colSpan="8" className="p-8 text-center text-zinc-500">
+                            No leave records for this period.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div id="attendance-print-area" className="rounded-lg border border-line bg-panel p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h3 className="text-xl font-black">{attendanceTitle}</h3>
@@ -3348,6 +3758,7 @@
                     )}
                   </tbody>
                 </table>
+              </div>
               </div>
             </section>
           </div>
