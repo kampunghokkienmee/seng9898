@@ -771,12 +771,56 @@
                     </div>
                   </div>
 
-                  <div className="mt-6 max-w-2xl rounded-lg border border-orange/30 bg-orange/10 p-4">
-                    <div className="text-sm font-bold uppercase tracking-[.16em] text-orange">
-                      Ready for service
+                  <div className="mt-6 grid items-center gap-5 xl:grid-cols-[1fr_320px]">
+                    <div className="rounded-lg border border-orange/30 bg-orange/10 p-4">
+                      <div className="text-sm font-bold uppercase tracking-[.16em] text-orange">
+                        Ready for service
+                      </div>
+                      <div className="mt-2 text-xl font-black text-zinc-950">
+                        Open tables, take orders, send kitchen tickets, and collect payment.
+                      </div>
                     </div>
-                    <div className="mt-2 text-xl font-black text-zinc-950">
-                      Open tables, take orders, send kitchen tickets, and collect payment.
+
+                    <div className="relative mx-auto aspect-square w-full max-w-[320px] overflow-hidden rounded-lg border border-orange/20 bg-gradient-to-br from-orange/15 via-white to-zinc-50 p-4">
+                      <div className="absolute left-4 top-4 rounded-full border border-orange/30 bg-white/85 px-3 py-1 text-xs font-black uppercase tracking-[.16em] text-orange">
+                        Signature Prawn
+                      </div>
+                      <svg viewBox="0 0 360 360" aria-hidden="true" className="h-full w-full">
+                        <defs>
+                          <linearGradient id="loginPrawnShell" x1="60" y1="58" x2="292" y2="286" gradientUnits="userSpaceOnUse">
+                            <stop offset="0" stopColor="#ffb067" />
+                            <stop offset="0.52" stopColor="#ff8a2a" />
+                            <stop offset="1" stopColor="#f4511e" />
+                          </linearGradient>
+                          <linearGradient id="loginPrawnSoft" x1="88" y1="96" x2="238" y2="250" gradientUnits="userSpaceOnUse">
+                            <stop offset="0" stopColor="#fff7ed" />
+                            <stop offset="1" stopColor="#fed7aa" />
+                          </linearGradient>
+                        </defs>
+                        <path
+                          d="M250 76c-46-25-119-15-159 29-35 39-35 95-1 130 35 36 96 41 142 11 43-29 61-77 45-123"
+                          fill="none"
+                          stroke="url(#loginPrawnShell)"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="30"
+                        />
+                        <path
+                          d="M111 135c32-34 84-46 132-30"
+                          fill="none"
+                          stroke="url(#loginPrawnSoft)"
+                          strokeLinecap="round"
+                          strokeWidth="16"
+                          opacity=".9"
+                        />
+                        <path d="M242 78c30 2 57 20 70 48-22 3-45 18-62 42" fill="none" stroke="#fb923c" strokeLinecap="round" strokeLinejoin="round" strokeWidth="20" />
+                        <path d="M291 121l38-24M291 121l50 9M291 121l35 37" fill="none" stroke="#f97316" strokeLinecap="round" strokeWidth="10" />
+                        <path d="M252 94c22-28 44-43 67-49M244 107c-31-41-64-63-99-67" fill="none" stroke="#9a3412" strokeLinecap="round" strokeWidth="5" opacity=".8" />
+                        <path d="M100 141c-35-38-65-53-91-45M92 165c-40-21-71-20-94-2" fill="none" stroke="#9a3412" strokeLinecap="round" strokeWidth="5" opacity=".8" />
+                        <path d="M116 220l-34 36M153 238l-18 49M197 230l10 48" fill="none" stroke="#fb923c" strokeLinecap="round" strokeWidth="9" />
+                        <path d="M138 104c3 24 11 44 24 61M178 94c2 32 11 60 27 83M219 101c-2 31 4 58 18 81" fill="none" stroke="#c2410c" strokeLinecap="round" strokeWidth="5" opacity=".7" />
+                        <circle cx="255" cy="94" r="7" fill="#7c2d12" />
+                      </svg>
                     </div>
                   </div>
                 </div>
