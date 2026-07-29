@@ -595,6 +595,14 @@
         }
       }
 
+      function posPublicUrl() {
+        return `${window.location.origin}${window.location.pathname}`;
+      }
+
+      function cloudSetupUrl(config) {
+        return `${posPublicUrl()}#sync=${encodeCloudConfig(config)}`;
+      }
+
       function loadCloudConfig() {
         const sharedConfig = cloudConfigFromUrl();
         if (sharedConfig) {
@@ -4197,6 +4205,10 @@
             : syncStatus.kind === "syncing" || syncStatus.kind === "connecting"
             ? "border-sky-400/30 bg-sky-500/10 text-sky-200"
             : "border-line bg-ink text-zinc-300";
+        const cloudPreview = normalizeCloudConfig({ ...cloudForm, enabled: true }, true);
+        const cloudFieldsReady = Boolean(cloudPreview.apiKey && cloudPreview.databaseURL && cloudPreview.projectId);
+        const websiteLink = posPublicUrl();
+        const deviceSyncLink = cloudFieldsReady ? cloudSetupUrl(cloudPreview) : "";
 
         useEffect(() => {
           setCloudForm({ ...defaultCloudConfig, ...(cloudConfig || {}) });
@@ -4243,6 +4255,20 @@
           setCloudCopyMessage("");
         }
 
+        async function copyText(value, successMessage) {
+          try {
+            await navigator.clipboard.writeText(value);
+            setCloudCopyMessage(successMessage);
+          } catch (error) {
+            window.prompt("Copy link", value);
+            setCloudCopyMessage(`${successMessage} If it was not copied automatically, copy it from the popup.`);
+          }
+        }
+
+        async function copyPosWebsiteLink() {
+          await copyText(posPublicUrl(), "POS website link copied.");
+        }
+
         async function copyCloudSetupLink() {
           const next = normalizeCloudConfig({ ...cloudForm, enabled: true }, true);
           if (!next.apiKey || !next.databaseURL || !next.projectId) {
@@ -4250,14 +4276,12 @@
             return;
           }
 
-          const link = `${window.location.origin}${window.location.pathname}${window.location.search}#sync=${encodeCloudConfig(next)}`;
-          try {
-            await navigator.clipboard.writeText(link);
-            setCloudCopyMessage("Setup link copied. Open it once on phone or iPad.");
-          } catch (error) {
-            window.prompt("Copy setup link", link);
-            setCloudCopyMessage("Setup link ready.");
-          }
+          setCloudForm(next);
+          setCloudConfig(next);
+          await copyText(
+            cloudSetupUrl(next),
+            "Sync link copied and enabled here. Open it once on phone, iPad, or PC."
+          );
         }
 
         async function testBluetoothPrinter() {
@@ -4448,6 +4472,56 @@
                   <div className="mt-4 rounded-lg border border-line bg-panel p-3 text-sm text-zinc-400">
                     Status: {syncStatus.message}
                   </div>
+                  <div className="mt-4 rounded-lg border border-orange/30 bg-orange/10 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h5 className="font-black text-orange2">Device Sync Link</h5>
+                        <p className="mt-1 text-sm leading-6 text-zinc-400">
+                          Use this link once on every phone, iPad, and PC that should share the same POS data.
+                        </p>
+                      </div>
+                      <span className={cx(
+                        "rounded-full border px-3 py-1 text-xs font-black",
+                        cloudFieldsReady ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-200" : "border-amber-400/30 bg-amber-500/10 text-amber-200"
+                      )}>
+                        {cloudFieldsReady ? "Ready to share" : "Firebase needed"}
+                      </span>
+                    </div>
+                    <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+                      <div>
+                        <label className="text-xs font-black uppercase tracking-[.14em] text-zinc-500">Normal POS Website</label>
+                        <input
+                          readOnly
+                          value={websiteLink}
+                          onFocus={(event) => event.target.select()}
+                          className="mt-2 min-h-12 w-full rounded-lg border border-line bg-panel px-4 text-sm font-bold text-white outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-black uppercase tracking-[.14em] text-zinc-500">Phone / iPad Sync Link</label>
+                        <textarea
+                          readOnly
+                          value={deviceSyncLink || "Fill Firebase API Key, Database URL, and Project ID first."}
+                          onFocus={(event) => event.target.select()}
+                          className="mt-2 min-h-20 w-full resize-none rounded-lg border border-line bg-panel px-4 py-3 text-sm font-bold text-white outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                      <button
+                        onClick={copyPosWebsiteLink}
+                        className="min-h-12 rounded-lg border border-line bg-panel font-black text-zinc-300"
+                      >
+                        Copy Website Link
+                      </button>
+                      <button
+                        onClick={copyCloudSetupLink}
+                        className="min-h-12 rounded-lg border border-orange/40 bg-orange/10 font-black text-orange2"
+                      >
+                        Copy Device Sync Link
+                      </button>
+                    </div>
+                  </div>
                   <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
                     <button
                       onClick={saveCloudSettings}
@@ -4459,7 +4533,7 @@
                       onClick={copyCloudSetupLink}
                       className="min-h-12 rounded-lg border border-orange/40 bg-orange/10 font-black text-orange2"
                     >
-                      Copy Setup Link
+                      Copy Device Link
                     </button>
                     <button
                       onClick={disableCloudSync}
