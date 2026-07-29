@@ -674,6 +674,21 @@
           }
         }, [staffDirectory, staffId]);
 
+        const todayPayments = state.payments.filter((payment) => payment.date === todayKey());
+        const todaySales = todayPayments.reduce((sum, payment) => sum + Number(payment.total || 0), 0);
+        const openOrderCount = state.orders.filter((order) => !["Paid", "Cancelled"].includes(order.status)).length;
+        const activeKitchenCount = state.kitchenTickets.filter(
+          (ticket) => !ticket.archived && ticket.status !== "Served"
+        ).length;
+        const onDutyCount = state.timecards.filter((card) => card.date === todayKey() && !card.clockOut).length;
+        const availableTableCount = state.tables.filter((table) => table.status === "Available").length;
+        const selectedInitials = selectedStaff.name
+          .split(" ")
+          .map((part) => part[0])
+          .join("")
+          .slice(0, 2)
+          .toUpperCase();
+
         function submitLogin() {
           const user =
             mode === "manager"
@@ -738,119 +753,165 @@
         }
 
         return (
-          <main className="min-h-screen bg-ink text-white">
-            <section className="mx-auto grid min-h-screen max-w-6xl grid-cols-1 items-center gap-8 px-6 py-8 lg:grid-cols-[1.1fr_.9fr]">
-              <div className="space-y-8">
+          <main className="min-h-screen overflow-auto bg-zinc-50 text-zinc-950">
+            <section className="mx-auto grid min-h-screen max-w-7xl grid-cols-1 gap-5 px-4 py-4 md:px-6 md:py-6 lg:grid-cols-[1fr_430px]">
+              <div className="flex min-h-[520px] flex-col justify-between rounded-lg border border-zinc-200 bg-white p-5 shadow-soft md:p-7">
                 <div>
-                  <div className="mb-5 inline-flex rounded-full border border-orange/40 bg-orange/10 px-4 py-2 text-sm font-semibold text-orange2">
-                    {settings.tagline}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange text-xl font-black text-black">
+                      POS
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold uppercase tracking-[.18em] text-zinc-500">
+                        Staff Login
+                      </div>
+                      <h1 className="mt-1 text-4xl font-black leading-tight text-zinc-950 md:text-6xl">
+                        {settings.businessName}
+                      </h1>
+                    </div>
                   </div>
-                  <h1 className="max-w-3xl text-5xl font-semibold leading-tight tracking-normal text-white">
-                    {settings.businessName}
-                  </h1>
-                  <p className="mt-5 max-w-2xl text-lg leading-8 text-zinc-300">
-                    Touch-first restaurant, cafe, and snack bar POS with tables, menu ordering, KDS,
-                    simulated payments, sales reporting, staff clocking, and menu management.
-                  </p>
+
+                  <div className="mt-6 max-w-2xl rounded-lg border border-orange/30 bg-orange/10 p-4">
+                    <div className="text-sm font-bold uppercase tracking-[.16em] text-orange">
+                      Ready for service
+                    </div>
+                    <div className="mt-2 text-xl font-black text-zinc-950">
+                      Open tables, take orders, send kitchen tickets, and collect payment.
+                    </div>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="mt-8 grid grid-cols-2 gap-3 xl:grid-cols-4">
                   {[
-                    ["Tables", "20 dine-in tables with live status"],
-                    ["Kitchen", "KDS ticket flow from New to Served"],
-                    ["Payment", "Cash, Card, PayNow, QR Pay, Split Bill"],
-                    ["Reports", "Daily sales, hot items, tender mix"],
-                  ].map(([title, copy]) => (
-                    <div key={title} className="rounded-lg border border-line bg-panel/80 p-5">
-                      <div className="text-lg font-semibold">{title}</div>
-                      <div className="mt-2 text-sm leading-6 text-zinc-400">{copy}</div>
+                    ["Tables Ready", `${availableTableCount}/20`],
+                    ["Open Orders", openOrderCount],
+                    ["Kitchen Active", activeKitchenCount],
+                    ["Today Sales", money(todaySales)],
+                  ].map(([title, value]) => (
+                    <div key={title} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="text-sm font-bold text-zinc-500">{title}</div>
+                      <div className="mt-2 text-2xl font-black text-zinc-950">{value}</div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              <div className="rounded-lg border border-line bg-panel p-5 shadow-soft">
-                <div className="mb-5 grid grid-cols-2 rounded-lg bg-ink p-1">
-                  {["staff", "manager"].map((item) => (
-                    <button
-                      key={item}
-                      onClick={() => {
-                        setMode(item);
-                        setPin("");
-                        setMessage("");
-                      }}
-                      className={cx(
-                        "min-h-14 rounded-md text-base font-semibold capitalize transition",
-                        mode === item ? "bg-orange text-black" : "text-zinc-300"
-                      )}
-                    >
-                      {item === "staff" ? "Staff Login" : "Manager Login"}
-                    </button>
-                  ))}
-                </div>
+              <div className="flex items-center">
+                <div className="w-full rounded-lg border border-zinc-200 bg-white p-5 shadow-soft">
+                  <div className="mb-5">
+                    <div className="text-sm font-bold uppercase tracking-[.18em] text-zinc-500">Sign In</div>
+                    <h2 className="mt-2 text-3xl font-black text-zinc-950">Open POS</h2>
+                  </div>
 
-                {mode === "staff" && (
-                  <div className="mb-4 space-y-3">
-                    <label className="text-sm font-semibold text-zinc-400">Staff</label>
-                    <select
-                      value={staffId}
-                      onChange={(event) => setStaffId(event.target.value)}
-                      className="min-h-14 w-full rounded-lg border border-line bg-ink px-4 text-lg text-white outline-none focus:border-orange"
-                    >
-                      {staffDirectory.map((staff) => (
-                        <option key={staff.id} value={staff.id}>
-                          {staff.name} - {staff.role}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="grid grid-cols-2 gap-3">
+                  <div className="mb-5 grid grid-cols-2 rounded-lg bg-zinc-100 p-1">
+                    {["staff", "manager"].map((item) => (
                       <button
-                        onClick={() => clock("in")}
-                        className="min-h-14 rounded-lg border border-emerald-400/30 bg-emerald-500/10 font-semibold text-emerald-200"
+                        key={item}
+                        onClick={() => {
+                          setMode(item);
+                          setPin("");
+                          setMessage("");
+                        }}
+                        className={cx(
+                          "min-h-14 rounded-md text-base font-black capitalize transition",
+                          mode === item ? "bg-orange text-black shadow-sm" : "text-zinc-500"
+                        )}
                       >
-                        Clock In
+                        {item === "staff" ? "Staff" : "Manager"}
                       </button>
-                      <button
-                        onClick={() => clock("out")}
-                        className="min-h-14 rounded-lg border border-zinc-500/40 bg-white/5 font-semibold text-zinc-200"
-                      >
-                        Clock Out
-                      </button>
+                    ))}
+                  </div>
+
+                  {mode === "staff" && (
+                    <div className="mb-4 space-y-3">
+                      <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange/15 text-base font-black text-orange">
+                          {selectedInitials}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <label className="text-sm font-bold text-zinc-500">Staff</label>
+                          <select
+                            value={staffId}
+                            onChange={(event) => setStaffId(event.target.value)}
+                            className="mt-1 min-h-11 w-full rounded-md border border-zinc-200 bg-white px-3 text-base font-bold text-zinc-950 outline-none focus:border-orange"
+                          >
+                            {staffDirectory.map((staff) => (
+                              <option key={staff.id} value={staff.id}>
+                                {staff.name} - {staff.role}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => clock("in")}
+                          className="min-h-14 rounded-lg border border-emerald-300 bg-emerald-50 font-black text-emerald-700"
+                        >
+                          Clock In
+                        </button>
+                        <button
+                          onClick={() => clock("out")}
+                          className="min-h-14 rounded-lg border border-zinc-200 bg-zinc-50 font-black text-zinc-700"
+                        >
+                          Clock Out
+                        </button>
+                      </div>
+
+                      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-500">
+                        <div className="flex items-center justify-between gap-3">
+                          <span>Shift Status</span>
+                          <span className={activeCard ? "font-black text-emerald-700" : "font-black text-zinc-700"}>
+                            {activeCard ? `On duty ${displayTime(activeCard.clockIn)}` : "Off duty"}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="rounded-lg border border-line bg-ink p-3 text-sm text-zinc-400">
-                      Status:{" "}
-                      <span className={activeCard ? "font-semibold text-emerald-300" : "font-semibold text-zinc-200"}>
-                        {activeCard ? `On duty since ${displayTime(activeCard.clockIn)}` : "Not clocked in"}
-                      </span>
+                  )}
+
+                  <label className="text-sm font-bold text-zinc-500">PIN</label>
+                  <input
+                    value={pin}
+                    onChange={(event) => setPin(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") submitLogin();
+                    }}
+                    inputMode="numeric"
+                    type="password"
+                    placeholder={mode === "manager" ? "Manager PIN" : "Staff PIN"}
+                    className="mt-2 min-h-16 w-full rounded-lg border border-zinc-200 bg-zinc-50 px-5 text-center text-3xl font-black tracking-[.45em] text-zinc-950 outline-none focus:border-orange"
+                  />
+                  <button
+                    onClick={submitLogin}
+                    className="mt-4 min-h-16 w-full rounded-lg bg-orange px-5 text-lg font-black text-black transition active:scale-[.99]"
+                  >
+                    Enter POS
+                  </button>
+
+                  <div className="mt-4 grid grid-cols-3 gap-2 text-center text-sm">
+                    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="font-black text-zinc-950">{onDutyCount}</div>
+                      <div className="mt-1 text-zinc-500">On Duty</div>
+                    </div>
+                    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="font-black text-zinc-950">{openOrderCount}</div>
+                      <div className="mt-1 text-zinc-500">Orders</div>
+                    </div>
+                    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="font-black text-zinc-950">{money(todaySales)}</div>
+                      <div className="mt-1 text-zinc-500">Today</div>
                     </div>
                   </div>
-                )}
 
-                <label className="text-sm font-semibold text-zinc-400">PIN</label>
-                <input
-                  value={pin}
-                  onChange={(event) => setPin(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") submitLogin();
-                  }}
-                  inputMode="numeric"
-                  type="password"
-                  placeholder={mode === "manager" ? "Manager PIN 0000" : "Staff PIN"}
-                  className="mt-2 min-h-16 w-full rounded-lg border border-line bg-ink px-5 text-2xl tracking-[.35em] text-white outline-none focus:border-orange"
-                />
-                <button
-                  onClick={submitLogin}
-                  className="mt-4 min-h-16 w-full rounded-lg bg-orange px-5 text-lg font-bold text-black transition active:scale-[.99]"
-                >
-                  Enter POS
-                </button>
-                <button
-                  onClick={resetDemo}
-                  className="mt-3 min-h-12 w-full rounded-lg border border-line bg-ink px-5 text-sm font-bold text-zinc-300 transition active:scale-[.99]"
-                >
-                  Reset Demo Data
-                </button>
-                <p className="mt-4 min-h-10 text-sm leading-6 text-zinc-400">{message}</p>
+                  <button
+                    onClick={resetDemo}
+                    className="mt-4 min-h-11 w-full rounded-lg border border-zinc-200 bg-white px-5 text-sm font-bold text-zinc-500 transition active:scale-[.99]"
+                  >
+                    Reset Demo Data
+                  </button>
+                  <p className="mt-4 min-h-10 text-sm leading-6 text-zinc-500">{message}</p>
+                </div>
               </div>
             </section>
           </main>
