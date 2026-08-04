@@ -217,7 +217,7 @@
       const SESSION_KEY = "aurora-ipad-pos-session-v1";
       const CLOUD_CONFIG_KEY = "aurora-ipad-pos-cloud-config-v1";
       const DEVICE_ID_KEY = "aurora-ipad-pos-device-id-v1";
-      const MENU_VERSION = "phostop-active-menu-v5-split-sets";
+      const MENU_VERSION = "phostop-active-menu-v6-fixed-set-menu";
       const SETTINGS_VERSION = "phostop-pte-ltd-v1";
       const TABLE_COUNT = 30;
       const TAX_RATE = 0.09;
@@ -1939,6 +1939,9 @@
       }) {
         const [category, setCategory] = useState("All");
         const [search, setSearch] = useState("");
+        const regularCategories = categories.filter(
+          (item) => item !== "Set Upgrade" && item !== "Set Drinks"
+        );
         const totals = calcOrder(order);
         const filtered = menuItems.filter((item) => {
           const matchesCategory = category === "All" || item.category === category;
@@ -1986,8 +1989,38 @@
                 />
               </div>
 
+              <div className="mb-4 grid grid-cols-[auto_1fr_1fr] items-stretch gap-2 rounded-lg border border-orange/40 bg-orange/10 p-2">
+                <div className="flex min-h-14 items-center px-3 text-sm font-black text-orange2">
+                  SET MENU
+                </div>
+                <button
+                  onClick={() => setCategory("Set Upgrade")}
+                  className={cx(
+                    "min-h-14 rounded-md border px-4 text-left font-black",
+                    category === "Set Upgrade"
+                      ? "border-orange bg-orange text-black"
+                      : "border-orange/40 bg-panel text-white"
+                  )}
+                >
+                  <span className="block">Set A–F</span>
+                  <span className={cx("mt-0.5 block text-xs font-semibold", category === "Set Upgrade" ? "text-black/70" : "text-zinc-400")}>Choose side</span>
+                </button>
+                <button
+                  onClick={() => setCategory("Set Drinks")}
+                  className={cx(
+                    "min-h-14 rounded-md border px-4 text-left font-black",
+                    category === "Set Drinks"
+                      ? "border-orange bg-orange text-black"
+                      : "border-orange/40 bg-panel text-white"
+                  )}
+                >
+                  <span className="block">Set Drinks</span>
+                  <span className={cx("mt-0.5 block text-xs font-semibold", category === "Set Drinks" ? "text-black/70" : "text-zinc-400")}>Choose drink</span>
+                </button>
+              </div>
+
               <div className="mb-5 flex gap-2 overflow-auto pb-1 no-scrollbar">
-                {["All", ...categories].map((item) => (
+                {["All", ...regularCategories].map((item) => (
                   <button
                     key={item}
                     onClick={() => setCategory(item)}
