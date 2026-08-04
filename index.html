@@ -217,7 +217,7 @@
       const SESSION_KEY = "aurora-ipad-pos-session-v1";
       const CLOUD_CONFIG_KEY = "aurora-ipad-pos-cloud-config-v1";
       const DEVICE_ID_KEY = "aurora-ipad-pos-device-id-v1";
-      const MENU_VERSION = "phostop-active-menu-v3-images";
+      const MENU_VERSION = "phostop-active-menu-v4-set-drinks";
       const SETTINGS_VERSION = "phostop-pte-ltd-v1";
       const TABLE_COUNT = 30;
       const TAX_RATE = 0.09;
@@ -229,6 +229,17 @@
         "Set Upgrade D", "Set Upgrade E", "Set Upgrade F", "Packaging",
       ];
       const ORDER_NOTES = ["No spicy", "Less ice", "No onion"];
+      const SET_DRINK_OPTIONS = [
+        ["Coke", 0], ["Coke Zero", 0], ["Hot Ginger", 0], ["Ayataka Green Tea", 0],
+        ["Hot Earl Grey", 0], ["GOLD Tonic Water", 0], ["Dasani Drinking Water", 0],
+        ["Soda Water", 0], ["Hot Green Tea", 0], ["Pineapple Juice", 0],
+        ["Coconut Juice", 0], ["YELLOW - Soda", 0], ["HouJi Cha", 0],
+        ["Vietnamese Drip Coffee (White Hot)", 1.5], ["Vietnamese Drip Coffee (White Cold)", 1.5],
+        ["Vietnamese Drip Coffee (Black Hot)", 1.5], ["Vietnamese Drip Coffee (Black Cold)", 1.5],
+        ["Calamansi Juice", 0.8], ["Limau Asam Boi", 0.8], ["Iced Barley Drink", 0.8],
+        ["Lemongrass Pandan Drink", 0.8], ["Iced Herbal Tea", 0.8],
+        ["Viet Iced Lemon Tea", 0.8], ["Plum Lime Soda", 0.8], ["Soda + Lime", 0.8],
+      ].map(([name, price]) => ({ name, price }));
       const PAYMENT_METHODS = ["Cash", "Card", "PayNow / QR Pay", "Split Bill"];
       const KDS_STATUSES = ["New", "Preparing", "Ready", "Served"];
       const TABLE_STATUSES = ["Available", "Occupied", "Reserved", "Cleaning"];
@@ -397,18 +408,12 @@
         ["Add-ons", "Add Chicken for 702-705", 3],
         ["Add-ons", "Add Pork for 706-709", 3],
         ["Add-ons", "Upgrade Rice to Fried Rice", 3],
-        ["Set Upgrade A", "Chicken Mid Wings (3 pcs)", 3.2],
-        ["Set Upgrade A", "Canned Drinks", 3.1],
-        ["Set Upgrade B", "Deep-fried Spring Rolls (2 pcs)", 3.2],
-        ["Set Upgrade B", "Canned Drinks", 3.1],
-        ["Set Upgrade C", "Summer Fresh Roll with Prawns & Chicken (1 pc)", 3.6],
-        ["Set Upgrade C", "Canned Drinks", 3.1],
-        ["Set Upgrade D", "Deep-fried Vegetarian Spring Rolls (2 pcs)", 3.2],
-        ["Set Upgrade D", "Canned Drinks", 3.1],
-        ["Set Upgrade E", "Purple Yam Rolls (2 pcs)", 3.2],
-        ["Set Upgrade E", "Canned Drinks", 3.1],
-        ["Set Upgrade F", "VEG Summer Roll (TOFU) (1 pc)", 3.6],
-        ["Set Upgrade F", "Canned Drinks", 3.1],
+        ["Set Upgrade A", "Set A - Chicken Mid Wings (3 pcs) + Drink", 6.3],
+        ["Set Upgrade B", "Set B - Deep-fried Spring Rolls (2 pcs) + Drink", 6.3],
+        ["Set Upgrade C", "Set C - Summer Fresh Roll (1 pc) + Drink", 6.7],
+        ["Set Upgrade D", "Set D - Vegetarian Spring Rolls (2 pcs) + Drink", 6.3],
+        ["Set Upgrade E", "Set E - Purple Yam Rolls (2 pcs) + Drink", 6.3],
+        ["Set Upgrade F", "Set F - VEG Summer Roll TOFU (1 pc) + Drink", 6.7],
         ["Packaging", "Takeaway Packaging (per transaction)", 0.6],
       ];
 
@@ -1383,6 +1388,7 @@
 
         function addItem(menuItem) {
           if (menuItem.soldOut) return;
+          const presetNote = menuItem.orderNote || "";
           let orderId = activeOrderId;
 
           setState((current) => {
@@ -1411,7 +1417,7 @@
 
             const nextOrders = orders.map((item) => {
               if (item.id !== order.id) return item;
-              const existing = item.items.find((line) => line.menuId === menuItem.id && !line.note);
+              const existing = item.items.find((line) => line.menuId === menuItem.id && line.note === presetNote);
               const lines = existing
                 ? item.items.map((line) =>
                     line.id === existing.id ? { ...line, qty: line.qty + 1 } : line
@@ -1426,7 +1432,7 @@
                       price: Number(menuItem.price),
                       image: menuItem.image,
                       qty: 1,
-                      note: "",
+                      note: presetNote,
                     },
                   ];
               return { ...item, items: lines, status: item.status === "Held" ? "Open" : item.status };
@@ -1938,7 +1944,18 @@
       }) {
         const [category, setCategory] = useState("All");
         const [search, setSearch] = useState("");
+        const [pendingSet, setPendingSet] = useState(null);
         const totals = calcOrder(order);
+
+        function chooseSetDrink(drink) {
+          if (!pendingSet) return;
+          onAdd({
+            ...pendingSet,
+            price: Number(pendingSet.price) + drink.price,
+            orderNote: `Set Drink: ${drink.name}${drink.price ? ` (+${money(drink.price)})` : ""}`,
+          });
+          setPendingSet(null);
+        }
         const filtered = menuItems.filter((item) => {
           const matchesCategory = category === "All" || item.category === category;
           const query = search.trim().toLowerCase();
@@ -1950,6 +1967,7 @@
         });
 
         return (
+          <>
           <div className="grid h-full grid-cols-1 overflow-hidden xl:grid-cols-[1fr_430px]">
             <section className="min-h-0 overflow-auto border-r border-line p-5">
               <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -2005,7 +2023,7 @@
                   <button
                     key={item.id}
                     data-testid={`menu-${item.id}`}
-                    onClick={() => onAdd(item)}
+                    onClick={() => item.category.startsWith("Set Upgrade") ? setPendingSet(item) : onAdd(item)}
                     disabled={item.soldOut}
                     className={cx(
                       "group overflow-hidden rounded-lg border border-line bg-panel text-left shadow-soft transition active:scale-[.99]",
@@ -2055,6 +2073,35 @@
               onPay={onPay}
             />
           </div>
+          {pendingSet && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" onClick={() => setPendingSet(null)}>
+              <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-lg border border-line bg-panel p-5 shadow-soft" onClick={(event) => event.stopPropagation()}>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-bold uppercase text-orange2">Choose Set Drink</div>
+                    <h3 className="mt-1 text-2xl font-black">{pendingSet.name}</h3>
+                    <p className="mt-1 text-sm text-zinc-400">Set price {money(pendingSet.price)}. Choose one drink.</p>
+                  </div>
+                  <button title="Close" onClick={() => setPendingSet(null)} className="h-12 w-12 rounded-lg border border-line bg-ink text-xl font-black">×</button>
+                </div>
+                <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3">
+                  {SET_DRINK_OPTIONS.map((drink) => (
+                    <button
+                      key={drink.name}
+                      onClick={() => chooseSetDrink(drink)}
+                      className="min-h-16 rounded-lg border border-line bg-ink p-3 text-left transition active:scale-[.98] hover:border-orange"
+                    >
+                      <div className="font-bold">{drink.name}</div>
+                      <div className={cx("mt-1 text-sm font-black", drink.price ? "text-orange2" : "text-emerald-300")}>
+                        {drink.price ? `+${money(drink.price)}` : "Included"}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          </>
         );
       }
 
