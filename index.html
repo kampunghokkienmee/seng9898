@@ -217,7 +217,7 @@
       const SESSION_KEY = "aurora-ipad-pos-session-v1";
       const CLOUD_CONFIG_KEY = "aurora-ipad-pos-cloud-config-v1";
       const DEVICE_ID_KEY = "aurora-ipad-pos-device-id-v1";
-      const MENU_VERSION = "phostop-active-menu-v2";
+      const MENU_VERSION = "phostop-active-menu-v3-images";
       const SETTINGS_VERSION = "phostop-pte-ltd-v1";
       const TAX_RATE = 0.09;
       const SERVICE_RATE = 0.1;
@@ -432,6 +432,39 @@
         Packaging: "photo-1526367790999-0150786686a2",
       };
 
+      const menuImageRules = [
+        [/fresh roll|summer roll/i, "photo-1534422298391-e4f8c172dddb"],
+        [/spring roll|prawn.*roll|yam roll/i, "photo-1601050690597-df0568f70950"],
+        [/salad/i, "photo-1540420773420-3366772f4999"],
+        [/beef.*pho|pho.*beef|beef feast/i, "photo-1582878826629-29b7ad1cdc43"],
+        [/chicken pho|spicy double chicken/i, "photo-1576577445504-6af96477db52"],
+        [/pho chay|dumplings pho/i, "photo-1559314809-0d155014e29e"],
+        [/pho/i, "photo-1569718212165-3a8278d5f624"],
+        [/fried rice/i, "photo-1512058564366-18510be2db19"],
+        [/hor fun|dry noodle|chop noodle/i, "photo-1555126634-323283e090fa"],
+        [/curry/i, "photo-1603894584373-5ac82b2ae398"],
+        [/chicken.*rice|chicken cutlet|chicken chop/i, "photo-1532550907401-a500c9a57435"],
+        [/pork.*rice|pork belly|pork ribs|pork chop/i, "photo-1544025162-d76694265947"],
+        [/fish|seafood/i, "photo-1519708227418-c8fd9a32b7a2"],
+        [/rice/i, "photo-1603133872878-684f208fb84b"],
+        [/wing|nugget/i, "photo-1562967914-608f82629710"],
+        [/fries/i, "photo-1573080496219-bb080dd4f877"],
+        [/dumpling/i, "photo-1496116218417-1a781b1c416c"],
+        [/meatball/i, "photo-1529042410759-befb1204b468"],
+        [/waffle/i, "photo-1562376552-0d160a2f238d"],
+        [/jelly|plum|dessert/i, "photo-1551024506-0bccd828d307"],
+        [/coffee/i, "photo-1495474472287-4d71bcdd2085"],
+        [/tea/i, "photo-1556679343-c7306c1976bc"],
+        [/juice|soda|coke|water|drink|barley|limau/i, "photo-1544145945-f90425340c7e"],
+        [/egg/i, "photo-1525351484163-7529414344d8"],
+        [/packaging/i, "photo-1526367790999-0150786686a2"],
+      ];
+
+      function menuImageFor(category, name) {
+        const match = menuImageRules.find(([pattern]) => pattern.test(name));
+        return image(match?.[1] || menuCategoryImages[category] || "photo-1504674900247-0877df9cc836");
+      }
+
       const defaultMenu = menuSeed.map(([category, name, price], index) => ({
         id: `phostop-${index + 1}`,
         name,
@@ -439,7 +472,7 @@
         price,
         popular: ["201. Sliced Beef (Ribeye) Pho", "206. Beef Feast Combo", "701. Orange & Lemon Chicken Cutlet Rice 招牌橙子柠檬鸡排"].includes(name),
         soldOut: false,
-        image: image(menuCategoryImages[category]),
+        image: menuImageFor(category, name),
       }));
 
       const navItems = [
