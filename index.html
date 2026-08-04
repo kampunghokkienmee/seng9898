@@ -217,13 +217,15 @@
       const SESSION_KEY = "aurora-ipad-pos-session-v1";
       const CLOUD_CONFIG_KEY = "aurora-ipad-pos-cloud-config-v1";
       const DEVICE_ID_KEY = "aurora-ipad-pos-device-id-v1";
-      const MENU_VERSION = "phostop-active-menu-v1";
+      const MENU_VERSION = "phostop-active-menu-v2";
       const SETTINGS_VERSION = "phostop-pte-ltd-v1";
       const TAX_RATE = 0.09;
       const SERVICE_RATE = 0.1;
       const CATEGORIES = [
         "Salad", "Sides", "Pho", "Rice & Dry Noodle", "Vegetarian", "Rice Meals",
-        "Dessert", "Coffee", "Drinks", "Tea", "Add-ons", "Packaging",
+        "Dessert", "Coffee", "Drinks", "Tea", "Add-ons",
+        "Set Upgrade A", "Set Upgrade B", "Set Upgrade C",
+        "Set Upgrade D", "Set Upgrade E", "Set Upgrade F", "Packaging",
       ];
       const ORDER_NOTES = ["No spicy", "Less ice", "No onion"];
       const PAYMENT_METHODS = ["Cash", "Card", "PayNow / QR Pay", "Split Bill"];
@@ -394,6 +396,18 @@
         ["Add-ons", "Add Chicken for 702-705", 3],
         ["Add-ons", "Add Pork for 706-709", 3],
         ["Add-ons", "Upgrade Rice to Fried Rice", 3],
+        ["Set Upgrade A", "Chicken Mid Wings (3 pcs)", 3.2],
+        ["Set Upgrade A", "Canned Drinks", 3.1],
+        ["Set Upgrade B", "Deep-fried Spring Rolls (2 pcs)", 3.2],
+        ["Set Upgrade B", "Canned Drinks", 3.1],
+        ["Set Upgrade C", "Summer Fresh Roll with Prawns & Chicken (1 pc)", 3.6],
+        ["Set Upgrade C", "Canned Drinks", 3.1],
+        ["Set Upgrade D", "Deep-fried Vegetarian Spring Rolls (2 pcs)", 3.2],
+        ["Set Upgrade D", "Canned Drinks", 3.1],
+        ["Set Upgrade E", "Purple Yam Rolls (2 pcs)", 3.2],
+        ["Set Upgrade E", "Canned Drinks", 3.1],
+        ["Set Upgrade F", "VEG Summer Roll (TOFU) (1 pc)", 3.6],
+        ["Set Upgrade F", "Canned Drinks", 3.1],
         ["Packaging", "Takeaway Packaging (per transaction)", 0.6],
       ];
 
@@ -409,6 +423,12 @@
         Drinks: "photo-1544145945-f90425340c7e",
         Tea: "photo-1556679343-c7306c1976bc",
         "Add-ons": "photo-1547592180-85f173990554",
+        "Set Upgrade A": "photo-1562967914-608f82629710",
+        "Set Upgrade B": "photo-1562967914-608f82629710",
+        "Set Upgrade C": "photo-1547592180-85f173990554",
+        "Set Upgrade D": "photo-1547592180-85f173990554",
+        "Set Upgrade E": "photo-1551024506-0bccd828d307",
+        "Set Upgrade F": "photo-1512621776951-a57141f2eefd",
         Packaging: "photo-1526367790999-0150786686a2",
       };
 
