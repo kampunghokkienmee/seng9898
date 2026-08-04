@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>某招牌麵館 POS</title>
+    <title>Phostop Pte Ltd POS</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
@@ -218,7 +218,7 @@
       const CLOUD_CONFIG_KEY = "aurora-ipad-pos-cloud-config-v1";
       const DEVICE_ID_KEY = "aurora-ipad-pos-device-id-v1";
       const MENU_VERSION = "chinese-noodle-v1";
-      const SETTINGS_VERSION = "signature-noodle-house-v1";
+      const SETTINGS_VERSION = "phostop-pte-ltd-v1";
       const TAX_RATE = 0.09;
       const SERVICE_RATE = 0.1;
       const CATEGORIES = ["中式麵食", "炒麵", "飲品", "加料"];
@@ -245,7 +245,7 @@
         `https://images.unsplash.com/${id}?auto=format&fit=crop&w=700&q=80`;
 
       const defaultSettings = {
-        businessName: "某招牌麵館",
+        businessName: "Phostop Pte Ltd",
         tagline: "iPad Restaurant POS",
         managerName: "Manager",
         managerPin: "0000",
@@ -253,7 +253,7 @@
 
       const defaultCloudConfig = {
         enabled: false,
-        restaurantId: "signature-noodle-house",
+        restaurantId: "photop-admin",
         apiKey: "",
         authDomain: "",
         databaseURL: "",
