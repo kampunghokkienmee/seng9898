@@ -273,13 +273,13 @@
       };
 
       const defaultCloudConfig = {
-        enabled: false,
-        restaurantId: "photop-admin",
-        apiKey: "",
-        authDomain: "",
-        databaseURL: "",
-        projectId: "",
-        appId: "",
+        enabled: true,
+        restaurantId: "phostop-pte-ltd-pos",
+        apiKey: "AIzaSyAafrK6OYThxKiAYFOkrSD0OswMsKsuyCo",
+        authDomain: "noodle-pos-sync.firebaseapp.com",
+        databaseURL: "https://noodle-pos-sync-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "noodle-pos-sync",
+        appId: "1:647229957714:web:96150c3cc7aed088f8a18b",
       };
 
       const defaultStaffDirectory = [
@@ -930,7 +930,10 @@
       }
 
       function cloudSetupUrl(config) {
-        return `${posPublicUrl()}#sync=${encodeCloudConfig(config)}`;
+        const normalized = normalizeCloudConfig(config, true);
+        const usesBuiltInCloud = ["restaurantId", "apiKey", "authDomain", "databaseURL", "projectId", "appId"]
+          .every((key) => normalized[key] === defaultCloudConfig[key]);
+        return usesBuiltInCloud ? posPublicUrl() : `${posPublicUrl()}#sync=${encodeCloudConfig(normalized)}`;
       }
 
       function loadCloudConfig() {
@@ -945,6 +948,14 @@
 
         try {
           const saved = JSON.parse(localStorage.getItem(CLOUD_CONFIG_KEY));
+          const legacyRestaurantIds = ["mou-zhao-pai-noodle-pos", "photop-admin"];
+          if (
+            !saved?.projectId ||
+            saved.projectId !== defaultCloudConfig.projectId ||
+            legacyRestaurantIds.includes(saved.restaurantId)
+          ) {
+            return { ...defaultCloudConfig };
+          }
           return { ...defaultCloudConfig, ...normalizeCloudConfig(saved || {}) };
         } catch (error) {
           return { ...defaultCloudConfig };
@@ -5323,46 +5334,24 @@
                         {cloudFieldsReady ? "Ready to share" : "Firebase needed"}
                       </span>
                     </div>
-                    <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
-                      <div>
-                        <label className="text-xs font-black uppercase tracking-[.14em] text-zinc-500">普通 POS 網址</label>
-                        <input
-                          readOnly
-                          value={websiteLink}
-                          onFocus={(event) => event.target.select()}
-                          className="mt-2 min-h-12 w-full rounded-lg border border-line bg-panel px-4 text-sm font-bold text-white outline-none"
-                        />
-                        <div className="mt-2 text-xs leading-5 text-zinc-500">
-                          只打開 POS 網站；沒有 cloud sync 時，每台設備資料會分開。
-                        </div>
-                      </div>
-                      <div>
-                        <label className="text-xs font-black uppercase tracking-[.14em] text-zinc-500">同步資料網址</label>
-                        <textarea
-                          readOnly
-                          value={deviceSyncLink || "未設定 Cloud Sync。打開下面 Advanced Cloud Setup 填 Firebase 后，這里會自動生成同步網址。"}
-                          onFocus={(event) => event.target.select()}
-                          className="mt-2 min-h-20 w-full resize-none rounded-lg border border-line bg-panel px-4 py-3 text-sm font-bold text-white outline-none"
-                        />
-                        <div className="mt-2 text-xs leading-5 text-zinc-500">
-                          這個才是讓手機、iPad、電腦看到同一套 POS 資料的链接。
-                        </div>
+                    <div className="mt-4">
+                      <label className="text-xs font-black uppercase tracking-[.14em] text-zinc-500">共用 POS 網址</label>
+                      <input
+                        readOnly
+                        value={deviceSyncLink || websiteLink}
+                        onFocus={(event) => event.target.select()}
+                        className="mt-2 min-h-12 w-full rounded-lg border border-line bg-panel px-4 text-sm font-bold text-white outline-none"
+                      />
+                      <div className="mt-2 text-xs leading-5 text-zinc-500">
+                        手機、iPad、電腦都打開這個網址，訂單、桌位、KDS、打卡和報表會自動同步。
                       </div>
                     </div>
-                    <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                      <button
-                        onClick={copyPosWebsiteLink}
-                        className="min-h-12 rounded-lg border border-line bg-panel font-black text-zinc-300"
-                      >
-                        Copy 普通網址
-                      </button>
-                      <button
-                        onClick={copyCloudSetupLink}
-                        className="min-h-12 rounded-lg border border-orange/40 bg-orange/10 font-black text-orange2"
-                      >
-                        Copy 同步網址
-                      </button>
-                    </div>
+                    <button
+                      onClick={copyCloudSetupLink}
+                      className="mt-3 min-h-12 w-full rounded-lg border border-orange/40 bg-orange/10 font-black text-orange2"
+                    >
+                      Copy 共用 POS 網址
+                    </button>
                   </div>
 
                   <details className="mt-4 rounded-lg border border-line bg-panel p-4" open={!cloudFieldsReady}>
