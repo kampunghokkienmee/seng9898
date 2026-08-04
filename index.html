@@ -1129,9 +1129,6 @@
               <div className="flex min-h-[520px] flex-col justify-between rounded-lg border border-zinc-200 bg-white p-5 shadow-soft md:p-7">
                 <div>
                   <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex h-20 w-28 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-zinc-200 bg-white p-1 shadow-sm">
-                      <img src={brandLogoImage} alt="Pho Stop logo" className="h-full w-full object-contain" />
-                    </div>
                     <div>
                       <div className="text-sm font-bold uppercase tracking-[.18em] text-zinc-500">
                         Staff Login
@@ -1703,6 +1700,26 @@
           }));
         }
 
+        function toggleKitchenItem(ticketId, itemId) {
+          const now = new Date().toISOString();
+          setState((current) => ({
+            ...current,
+            kitchenTickets: current.kitchenTickets.map((ticket) => {
+              if (ticket.id !== ticketId) return ticket;
+              const items = ticket.items.map((item) =>
+                item.id === itemId ? { ...item, kitchenDone: !item.kitchenDone } : item
+              );
+              const allDone = items.length > 0 && items.every((item) => item.kitchenDone);
+              const nextStatus = allDone
+                ? "Ready"
+                : ticket.status === "Ready" || ticket.status === "New"
+                ? "Preparing"
+                : ticket.status;
+              return { ...ticket, items, status: nextStatus, updatedAt: now };
+            }),
+          }));
+        }
+
         function archiveKitchenTicket(ticketId) {
           setState((current) => ({
             ...current,
@@ -1912,6 +1929,7 @@
                   <KdsView
                     tickets={state.kitchenTickets}
                     onStatus={updateKitchenStatus}
+                    onToggleItem={toggleKitchenItem}
                     onArchive={archiveKitchenTicket}
                     onArchiveServed={archiveServedTickets}
                     onRemove={removeKitchenTicket}
@@ -2380,7 +2398,7 @@
         );
       }
 
-      function KdsView({ tickets, onStatus, onArchive, onArchiveServed, onRemove }) {
+      function KdsView({ tickets, onStatus, onToggleItem, onArchive, onArchiveServed, onRemove }) {
         const [bellEnabled, setBellEnabled] = useState(false);
         const [showArchived, setShowArchived] = useState(false);
         const knownTicketsRef = useRef(new Set(tickets.map((ticket) => ticket.id)));
@@ -2427,7 +2445,7 @@
                       : "cursor-not-allowed border-line bg-ink text-zinc-600"
                   )}
                 >
-                  Archive Served
+                  Clear Served
                 </button>
                 <button
                   onClick={() => setShowArchived((value) => !value)}
@@ -2479,18 +2497,54 @@
                             </span>
                           </div>
                           <div className="mt-4 space-y-2">
-                            {ticket.items.map((item) => (
-                              <div key={item.id} className="rounded-md bg-panel px-3 py-2">
-                                <div className="flex justify-between gap-2">
-                                  <span className="font-semibold">{item.qty}x {item.name}</span>
-                                  <span className="text-xs text-zinc-500">{item.category}</span>
-                                </div>
-                                {item.note && <div className="mt-1 text-sm font-semibold text-orange2">{item.note}</div>}
-                              </div>
-                            ))}
+                            {ticket.items.map((item) => {
+                              const itemDone = Boolean(item.kitchenDone) || status === "Served";
+                              return (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  disabled={status === "Served"}
+                                  onClick={() => onToggleItem(ticket.id, item.id)}
+                                  className={cx(
+                                    "flex min-h-14 w-full items-center gap-3 rounded-md border px-3 py-2 text-left",
+                                    itemDone
+                                      ? "border-emerald-400/35 bg-emerald-500/10 text-zinc-400"
+                                      : "border-line bg-panel text-white"
+                                  )}
+                                  aria-label={`${itemDone ? "Undo" : "Complete"} ${item.qty} ${item.name}`}
+                                >
+                                  <span
+                                    className={cx(
+                                      "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-lg font-black",
+                                      itemDone
+                                        ? "border-emerald-400 bg-emerald-500 text-black"
+                                        : "border-zinc-500 bg-ink text-transparent"
+                                    )}
+                                  >
+                                    {itemDone ? "✓" : ""}
+                                  </span>
+                                  <span className="min-w-0 flex-1">
+                                    <span className={cx("block font-semibold", itemDone && "line-through")}>
+                                      {item.qty}x {item.name}
+                                    </span>
+                                    {item.note && <span className="mt-1 block text-sm font-semibold text-orange2">{item.note}</span>}
+                                  </span>
+                                  <span className="text-xs text-zinc-500">{itemDone ? "Done" : item.category}</span>
+                                </button>
+                              );
+                            })}
                           </div>
+                          {status === "Ready" && (
+                            <button
+                              disabled={!ticket.items.every((item) => item.kitchenDone)}
+                              onClick={() => onStatus(ticket.id, "Served")}
+                              className="mt-4 min-h-12 w-full rounded-md bg-emerald-500 font-black text-black disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              Serve Order
+                            </button>
+                          )}
                           <div className="mt-4 grid grid-cols-2 gap-2">
-                            {KDS_STATUSES.filter((item) => item !== status).map((next) => (
+                            {KDS_STATUSES.filter((item) => item !== status && item !== "Served").map((next) => (
                               <button
                                 key={next}
                                 onClick={() => onStatus(ticket.id, next)}
