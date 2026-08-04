@@ -219,6 +219,7 @@
       const DEVICE_ID_KEY = "aurora-ipad-pos-device-id-v1";
       const MENU_VERSION = "phostop-active-menu-v19-viet-coffee-photo";
       const SETTINGS_VERSION = "phostop-pte-ltd-v1";
+      const STAFF_VERSION = "phostop-staff-v2-john-kim-huat-seng";
       const TABLE_COUNT = 30;
       const TAX_RATE = 0.09;
       const SERVICE_RATE = 0.1;
@@ -280,10 +281,10 @@
       };
 
       const defaultStaffDirectory = [
-        { id: "s1", name: "Alicia Tan", role: "Cashier", pin: "1111" },
-        { id: "s2", name: "Ben Lim", role: "Server", pin: "2222" },
-        { id: "s3", name: "Chloe Ng", role: "Barista", pin: "3333" },
-        { id: "s4", name: "Daniel Koh", role: "Kitchen", pin: "4444" },
+        { id: "s1", name: "John", role: "Staff", pin: "1111" },
+        { id: "s2", name: "Kim", role: "Staff", pin: "2222" },
+        { id: "s3", name: "Huat", role: "Staff", pin: "3333" },
+        { id: "s4", name: "Seng", role: "Staff", pin: "4444" },
       ];
 
       const defaultSuppliers = [
@@ -806,6 +807,7 @@
         return {
           menuVersion: MENU_VERSION,
           settingsVersion: SETTINGS_VERSION,
+          staffVersion: STAFF_VERSION,
           settings: { ...defaultSettings },
           menuCategories: [...CATEGORIES],
           staff: defaultStaffDirectory.map((staff) => ({ ...staff })),
@@ -825,18 +827,25 @@
         if (!saved) return emptyState();
         const shouldUseDefaultMenu = saved.menuVersion !== MENU_VERSION;
         const shouldUseDefaultSettings = saved.settingsVersion !== SETTINGS_VERSION;
+        const shouldUseDefaultStaff = saved.staffVersion !== STAFF_VERSION;
         return {
           ...emptyState(),
           ...saved,
           menuVersion: MENU_VERSION,
           settingsVersion: SETTINGS_VERSION,
+          staffVersion: STAFF_VERSION,
           settings: shouldUseDefaultSettings
             ? { ...defaultSettings, ...(saved.settings || {}), businessName: defaultSettings.businessName }
             : { ...defaultSettings, ...(saved.settings || {}) },
           menuCategories: saved.menuVersion === MENU_VERSION && saved.menuCategories?.length
             ? saved.menuCategories
             : [...CATEGORIES],
-          staff: saved.staff?.length ? saved.staff : defaultStaffDirectory.map((staff) => ({ ...staff })),
+          staff: shouldUseDefaultStaff
+            ? [
+                ...defaultStaffDirectory.map((staff) => ({ ...staff })),
+                ...(saved.staff || []).filter((staff) => !defaultStaffDirectory.some((item) => item.id === staff.id)),
+              ]
+            : saved.staff?.length ? saved.staff : defaultStaffDirectory.map((staff) => ({ ...staff })),
           tables: seedTables().map((table) => saved.tables?.find((savedTable) => savedTable.id === table.id) || table),
           menuItems: cleanMenu(shouldUseDefaultMenu ? defaultMenu : saved.menuItems?.length ? saved.menuItems : defaultMenu),
           orders: saved.orders || [],
