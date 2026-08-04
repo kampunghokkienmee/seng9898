@@ -664,6 +664,7 @@
           menuVersion: MENU_VERSION,
           settingsVersion: SETTINGS_VERSION,
           settings: { ...defaultSettings },
+          menuCategories: [...CATEGORIES],
           staff: defaultStaffDirectory.map((staff) => ({ ...staff })),
           tables: seedTables(),
           menuItems: cleanMenu(defaultMenu),
@@ -689,6 +690,9 @@
           settings: shouldUseDefaultSettings
             ? { ...defaultSettings, ...(saved.settings || {}), businessName: defaultSettings.businessName }
             : { ...defaultSettings, ...(saved.settings || {}) },
+          menuCategories: saved.menuVersion === MENU_VERSION && saved.menuCategories?.length
+            ? saved.menuCategories
+            : [...CATEGORIES],
           staff: saved.staff?.length ? saved.staff : defaultStaffDirectory.map((staff) => ({ ...staff })),
           tables: saved.tables?.length === 20 ? saved.tables : seedTables(),
           menuItems: cleanMenu(shouldUseDefaultMenu ? defaultMenu : saved.menuItems?.length ? saved.menuItems : defaultMenu),
@@ -1222,6 +1226,7 @@
       function AppShell({ user, setUser, state, setState, cloudConfig, setCloudConfig, syncStatus }) {
         const settings = { ...defaultSettings, ...(state.settings || {}) };
         const staffDirectory = state.staff?.length ? state.staff : defaultStaffDirectory;
+        const menuCategories = state.menuCategories?.length ? state.menuCategories : CATEGORIES;
         const [view, setView] = useState("tables");
         const [selectedTableId, setSelectedTableId] = useState(1);
         const [activeOrderId, setActiveOrderId] = useState(null);
@@ -1699,6 +1704,7 @@
                 {view === "pos" && (
                   <PosView
                     menuItems={state.menuItems}
+                    categories={menuCategories}
                     order={activeOrder}
                     selectedTableId={selectedTableId}
                     openOrders={openOrders}
@@ -1756,7 +1762,7 @@
                   <StaffView state={state} setState={setState} staffDirectory={staffDirectory} />
                 )}
                 {view === "menu" && (
-                  <MenuManagerView state={state} setState={setState} categories={CATEGORIES} />
+                  <MenuManagerView state={state} setState={setState} categories={menuCategories} />
                 )}
                 {view === "settings" && (
                   <SettingsView
@@ -1861,6 +1867,7 @@
 
       function PosView({
         menuItems,
+        categories,
         order,
         openOrders,
         onSelectOrder,
@@ -1925,7 +1932,7 @@
               </div>
 
               <div className="mb-5 flex gap-2 overflow-auto pb-1 no-scrollbar">
-                {["All", ...CATEGORIES].map((item) => (
+                {["All", ...categories].map((item) => (
                   <button
                     key={item}
                     onClick={() => setCategory(item)}
@@ -4399,7 +4406,62 @@
           soldOut: false,
         };
         const [form, setForm] = useState(emptyForm);
+        const [newCategory, setNewCategory] = useState("");
+        const [categoryEdit, setCategoryEdit] = useState(null);
         const editing = Boolean(form.id);
+
+        useEffect(() => {
+          if (!categories.includes(form.category)) {
+            setForm((current) => ({ ...current, category: categories[0] || "" }));
+          }
+        }, [categories]);
+
+        function addCategory() {
+          const name = newCategory.trim();
+          if (!name || categories.some((category) => category.toLowerCase() === name.toLowerCase())) return;
+          setState((current) => ({
+            ...current,
+            menuCategories: [...(current.menuCategories?.length ? current.menuCategories : CATEGORIES), name],
+          }));
+          setNewCategory("");
+        }
+
+        function saveCategoryName() {
+          const nextName = categoryEdit?.name?.trim();
+          const original = categoryEdit?.original;
+          if (!nextName || !original) return;
+          if (categories.some((category) => category !== original && category.toLowerCase() === nextName.toLowerCase())) return;
+          setState((current) => ({
+            ...current,
+            menuCategories: (current.menuCategories?.length ? current.menuCategories : CATEGORIES).map((category) =>
+              category === original ? nextName : category
+            ),
+            menuItems: current.menuItems.map((item) =>
+              item.category === original ? { ...item, category: nextName } : item
+            ),
+          }));
+          setForm((current) => current.category === original ? { ...current, category: nextName } : current);
+          setCategoryEdit(null);
+        }
+
+        function moveCategory(category, direction) {
+          setState((current) => {
+            const next = [...(current.menuCategories?.length ? current.menuCategories : CATEGORIES)];
+            const index = next.indexOf(category);
+            const target = index + direction;
+            if (index < 0 || target < 0 || target >= next.length) return current;
+            [next[index], next[target]] = [next[target], next[index]];
+            return { ...current, menuCategories: next };
+          });
+        }
+
+        function removeCategory(category) {
+          if (state.menuItems.some((item) => item.category === category) || categories.length <= 1) return;
+          setState((current) => ({
+            ...current,
+            menuCategories: (current.menuCategories?.length ? current.menuCategories : CATEGORIES).filter((item) => item !== category),
+          }));
+        }
 
         function saveItem() {
           if (!form.name.trim() || !Number(form.price)) return;
@@ -4521,7 +4583,70 @@
             </section>
 
             <section className="rounded-lg border border-line bg-panel p-5">
-              <h3 className="text-xl font-black">Menu Back Office</h3>
+              <div className="border-b border-line pb-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-xl font-black">Category Setup</h3>
+                    <p className="mt-1 text-sm text-zinc-400">Add, rename and arrange the order screen categories.</p>
+                  </div>
+                  <span className="rounded-full border border-line bg-ink px-3 py-1 text-sm font-bold text-orange2">{categories.length}</span>
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <input
+                    value={newCategory}
+                    onChange={(event) => setNewCategory(event.target.value)}
+                    onKeyDown={(event) => event.key === "Enter" && addCategory()}
+                    placeholder="New category name"
+                    className="min-h-12 flex-1 rounded-lg border border-line bg-ink px-4 text-white outline-none focus:border-orange"
+                  />
+                  <button onClick={addCategory} className="min-h-12 rounded-lg bg-orange px-5 font-black text-black">Add</button>
+                </div>
+                <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
+                  {categories.map((category, index) => {
+                    const itemCount = state.menuItems.filter((item) => item.category === category).length;
+                    const editingCategory = categoryEdit?.original === category;
+                    return (
+                      <div key={category} className="flex min-h-14 items-center gap-2 rounded-lg border border-line bg-ink p-2">
+                        {editingCategory ? (
+                          <input
+                            value={categoryEdit.name}
+                            onChange={(event) => setCategoryEdit({ ...categoryEdit, name: event.target.value })}
+                            onKeyDown={(event) => event.key === "Enter" && saveCategoryName()}
+                            className="min-w-0 flex-1 rounded-md border border-orange bg-panel px-3 py-2 text-white outline-none"
+                          />
+                        ) : (
+                          <div className="min-w-0 flex-1 px-2">
+                            <div className="truncate font-bold">{category}</div>
+                            <div className="text-xs text-zinc-500">{itemCount} items</div>
+                          </div>
+                        )}
+                        {editingCategory ? (
+                          <>
+                            <button onClick={saveCategoryName} className="min-h-10 rounded-md bg-orange px-3 text-xs font-black text-black">Save</button>
+                            <button onClick={() => setCategoryEdit(null)} className="min-h-10 rounded-md border border-line bg-panel px-3 text-xs font-bold">Cancel</button>
+                          </>
+                        ) : (
+                          <>
+                            <button title="Move up" disabled={index === 0} onClick={() => moveCategory(category, -1)} className="h-10 w-10 rounded-md border border-line bg-panel font-black disabled:opacity-30">↑</button>
+                            <button title="Move down" disabled={index === categories.length - 1} onClick={() => moveCategory(category, 1)} className="h-10 w-10 rounded-md border border-line bg-panel font-black disabled:opacity-30">↓</button>
+                            <button onClick={() => setCategoryEdit({ original: category, name: category })} className="min-h-10 rounded-md border border-line bg-panel px-3 text-xs font-bold">Edit</button>
+                            <button
+                              title={itemCount ? "Move or delete its menu items first" : "Delete category"}
+                              disabled={itemCount > 0 || categories.length <= 1}
+                              onClick={() => removeCategory(category)}
+                              className="min-h-10 rounded-md border border-rose-400/30 bg-rose-500/10 px-3 text-xs font-bold text-rose-200 disabled:cursor-not-allowed disabled:opacity-30"
+                            >
+                              Delete
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <h3 className="mt-5 text-xl font-black">Menu Back Office</h3>
               <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
                 {state.menuItems.map((item) => (
                   <div key={item.id} className="flex gap-4 rounded-lg border border-line bg-ink p-3">
