@@ -341,16 +341,13 @@
       const RESET_DEMO_PIN = "8888";
       const LAVU_ADDON_MENU_VERSION = "phostop-active-menu-v20-beef-stew-photo";
       const PREVIOUS_MENU_VERSION = "phostop-active-menu-v21-lavu-addons";
-      const MENU_VERSION = "seng9898-empty-menu-v1";
+      const MENU_VERSION = "seng9898-empty-menu-and-categories-v2";
       const SETTINGS_VERSION = "seng9898-hometown-hokkien-mee-v1";
       const STAFF_VERSION = "seng9898-generic-staff-v1";
       const TABLE_COUNT = 30;
       const RICE_MEALS_TIME_CATEGORY = "Rice Meals (2pm - 8pm)";
       const RICE_MILL_CATEGORY = "The Rice Mill";
-      const CATEGORIES = [
-        "Salad", "Sides", "Pho", "Rice & Dry Noodle", "Vegetarian", RICE_MEALS_TIME_CATEGORY, RICE_MILL_CATEGORY,
-        "Dessert", "Coffee", "Drinks", "Tea", "Add-ons", "Set Upgrade", "Set Drinks", "Packaging",
-      ];
+      const CATEGORIES = [];
       const ORDER_NOTES = ["No spicy", "Less ice", "No onion"];
       const ADDON_ELIGIBLE_CATEGORIES = [
         "Salad", "Sides", "Pho", "Rice & Dry Noodle", "Vegetarian", RICE_MEALS_TIME_CATEGORY, RICE_MILL_CATEGORY,
@@ -1184,9 +1181,9 @@
                 managerPin: defaultSettings.managerPin,
               }
             : { ...defaultSettings, ...(saved.settings || {}) },
-          menuCategories: splitRiceMealCategories(
-            !shouldUseDefaultMenu && saved.menuCategories?.length ? saved.menuCategories : CATEGORIES
-          ),
+          menuCategories: shouldUseDefaultMenu
+            ? []
+            : splitRiceMealCategories(saved.menuCategories || []),
           staff: shouldUseDefaultStaff
             ? defaultStaffDirectory.map((staff) => ({ ...staff }))
             : saved.staff?.length ? saved.staff : defaultStaffDirectory.map((staff) => ({ ...staff })),
@@ -7732,7 +7729,7 @@
         const emptyForm = {
           id: "",
           name: "",
-          category: categories[0],
+          category: categories[0] || "",
           price: "",
           popular: false,
           soldOut: false,
@@ -7754,7 +7751,7 @@
           if (!name || categories.some((category) => category.toLowerCase() === name.toLowerCase())) return;
           setState((current) => ({
             ...current,
-            menuCategories: [...(current.menuCategories?.length ? current.menuCategories : CATEGORIES), name],
+            menuCategories: [...(current.menuCategories || []), name],
           }));
           setNewCategory("");
         }
@@ -7766,7 +7763,7 @@
           if (categories.some((category) => category !== original && category.toLowerCase() === nextName.toLowerCase())) return;
           setState((current) => ({
             ...current,
-            menuCategories: (current.menuCategories?.length ? current.menuCategories : CATEGORIES).map((category) =>
+            menuCategories: (current.menuCategories || []).map((category) =>
               category === original ? nextName : category
             ),
             menuItems: current.menuItems.map((item) =>
@@ -7779,7 +7776,7 @@
 
         function moveCategory(category, direction) {
           setState((current) => {
-            const next = [...(current.menuCategories?.length ? current.menuCategories : CATEGORIES)];
+            const next = [...(current.menuCategories || [])];
             const index = next.indexOf(category);
             const target = index + direction;
             if (index < 0 || target < 0 || target >= next.length) return current;
@@ -7789,15 +7786,15 @@
         }
 
         function removeCategory(category) {
-          if (state.menuItems.some((item) => item.category === category) || categories.length <= 1) return;
+          if (state.menuItems.some((item) => item.category === category)) return;
           setState((current) => ({
             ...current,
-            menuCategories: (current.menuCategories?.length ? current.menuCategories : CATEGORIES).filter((item) => item !== category),
+            menuCategories: (current.menuCategories || []).filter((item) => item !== category),
           }));
         }
 
         function saveItem() {
-          if (!form.name.trim() || !Number(form.price)) return;
+          if (!form.category || !form.name.trim() || !Number(form.price)) return;
           const existingItem = state.menuItems.find((menuItem) => menuItem.id === form.id);
           const item = {
             ...form,
@@ -7874,6 +7871,7 @@
                       onChange={(event) => setForm({ ...form, category: event.target.value })}
                       className="mt-2 min-h-12 w-full rounded-lg border border-line bg-ink px-3 text-white outline-none focus:border-orange"
                     >
+                      <option value="" disabled>{categories.length ? "Select category" : "Add a category first"}</option>
                       {categories.map((category) => (
                         <option key={category} value={category}>
                           {category}
@@ -7912,7 +7910,8 @@
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={saveItem}
-                    className="min-h-14 rounded-lg bg-orange font-black text-black"
+                    disabled={!categories.length}
+                    className="min-h-14 rounded-lg bg-orange font-black text-black disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {editing ? "Save Changes" : "Add Item"}
                   </button>
@@ -7976,7 +7975,7 @@
                             <button onClick={() => setCategoryEdit({ original: category, name: category })} className="min-h-10 rounded-md border border-line bg-panel px-3 text-xs font-bold">Edit</button>
                             <button
                               title={itemCount ? "Move or delete its menu items first" : "Delete category"}
-                              disabled={itemCount > 0 || categories.length <= 1}
+                              disabled={itemCount > 0}
                               onClick={() => removeCategory(category)}
                               className="min-h-10 rounded-md border border-rose-400/30 bg-rose-500/10 px-3 text-xs font-bold text-rose-200 disabled:cursor-not-allowed disabled:opacity-30"
                             >
