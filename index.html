@@ -123,6 +123,101 @@
         scrollbar-width: none;
       }
 
+      @media (max-width: 640px) {
+        .mobile-shell {
+          display: block !important;
+          min-height: 100dvh;
+          padding-bottom: calc(74px + env(safe-area-inset-bottom));
+        }
+
+        .mobile-sidebar {
+          position: fixed;
+          z-index: 60;
+          inset: auto 0 0 0;
+          width: 100% !important;
+          height: calc(74px + env(safe-area-inset-bottom));
+          flex-direction: row !important;
+          align-items: flex-start;
+          gap: 4px;
+          overflow: hidden;
+          border-right: 0 !important;
+          border-top: 1px solid #2a3140;
+          padding: 6px 6px env(safe-area-inset-bottom) !important;
+          background: rgba(7, 9, 13, .98) !important;
+        }
+
+        .mobile-sidebar > button:first-child,
+        .mobile-sidebar > button:last-child {
+          display: none;
+        }
+
+        .mobile-sidebar nav {
+          min-width: 0;
+          flex: 1;
+          flex-direction: row !important;
+          gap: 4px !important;
+          overflow-x: auto;
+          overscroll-behavior-x: contain;
+          scrollbar-width: none;
+        }
+
+        .mobile-sidebar nav::-webkit-scrollbar {
+          display: none;
+        }
+
+        .mobile-sidebar nav button {
+          min-width: 64px;
+          min-height: 60px !important;
+          flex: 0 0 64px;
+          padding: 4px !important;
+          font-size: 11px !important;
+        }
+
+        .mobile-sidebar nav button > div:first-child {
+          font-size: 15px !important;
+        }
+
+        .mobile-main {
+          min-height: calc(100dvh - 74px);
+        }
+
+        .mobile-header {
+          min-height: 66px !important;
+          padding: 10px 12px !important;
+        }
+
+        .mobile-header h2 {
+          max-width: 72vw;
+          overflow: hidden;
+          font-size: 18px !important;
+          line-height: 1.25;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .mobile-header .mobile-header-actions {
+          display: none !important;
+        }
+
+        .mobile-content {
+          min-height: 0;
+          overflow: auto !important;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        .mobile-content > div {
+          min-height: 100%;
+        }
+
+        .mobile-content .p-5 {
+          padding: 12px !important;
+        }
+
+        .mobile-content table {
+          min-width: 680px;
+        }
+      }
+
       @keyframes loginSteamRise {
         0% {
           opacity: 0;
@@ -3197,8 +3292,8 @@
         }
 
         return (
-          <div className="flex min-h-screen bg-ink text-white">
-            <aside className="flex w-24 shrink-0 flex-col border-r border-line bg-black/30 px-3 py-4 lg:w-28">
+          <div className="mobile-shell flex min-h-screen bg-ink text-white">
+            <aside className="mobile-sidebar flex w-24 shrink-0 flex-col border-r border-line bg-black/30 px-3 py-4 lg:w-28">
               <button
                 onClick={() => setView(mainPosHost ? "tables" : "kds")}
                 className="mb-5 flex h-16 items-center justify-center overflow-hidden rounded-lg border border-line bg-white p-1"
@@ -3233,8 +3328,8 @@
               </button>
             </aside>
 
-            <main className="flex min-w-0 flex-1 flex-col">
-              <header className="flex min-h-20 items-center justify-between border-b border-line bg-ink/95 px-5">
+            <main className="mobile-main flex min-w-0 flex-1 flex-col">
+              <header className="mobile-header flex min-h-20 items-center justify-between border-b border-line bg-ink/95 px-5">
                 <div>
                   <div className="text-sm font-semibold uppercase tracking-[.18em] text-orange2">
                     {view === "kds" ? "Kitchen Display" : "Restaurant POS"}
@@ -3243,7 +3338,7 @@
                     {settings.businessName} / {allowedNavItems.find((item) => item.id === view)?.label || "KDS"}
                   </h2>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="mobile-header-actions flex items-center gap-3">
                   <div className="hidden rounded-lg border border-line bg-panel px-4 py-3 text-right md:block">
                     <div className="text-sm text-zinc-400">{displayDateTime()}</div>
                     <div className="font-semibold">
@@ -3291,7 +3386,7 @@
                 </div>
               </header>
 
-              <section className="min-h-0 flex-1 overflow-hidden">
+              <section className="mobile-content min-h-0 flex-1 overflow-hidden">
                 {view === "tables" && (
                   <TablesView
                     tables={state.tables}
